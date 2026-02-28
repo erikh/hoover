@@ -1,3 +1,5 @@
+use std::os::unix::io::RawFd;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use crossbeam_channel::{Receiver, bounded};
@@ -5,30 +7,62 @@ use crossbeam_channel::{Receiver, bounded};
 use crate::config::AudioConfig;
 use crate::error::{HooverError, Result};
 
+/// Temporarily redirects stderr to `/dev/null`, runs `f`, then restores stderr.
+///
+/// ALSA (and other native audio backends) print noisy warnings directly to
+/// stderr when enumerating devices. This helper silences them so they don't
+/// leak into the user's terminal.
+fn with_stderr_suppressed<T>(f: impl FnOnce() -> T) -> T {
+    // Safety: dup/dup2/open/close are standard POSIX fd operations.
+    unsafe {
+        let saved: RawFd = libc::dup(2);
+        if saved < 0 {
+            return f();
+        }
+        let devnull: RawFd = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
+        if devnull < 0 {
+            libc::close(saved);
+            return f();
+        }
+        libc::dup2(devnull, 2);
+        libc::close(devnull);
+
+        let result = f();
+
+        libc::dup2(saved, 2);
+        libc::close(saved);
+        result
+    }
+}
+
 /// List available audio input device names.
 pub fn list_input_devices() -> Result<Vec<String>> {
-    let host = cpal::default_host();
-    let devices = host
-        .input_devices()
-        .map_err(|e| HooverError::Audio(format!("failed to enumerate input devices: {e}")))?;
+    with_stderr_suppressed(|| {
+        let host = cpal::default_host();
+        let devices = host
+            .input_devices()
+            .map_err(|e| HooverError::Audio(format!("failed to enumerate input devices: {e}")))?;
 
-    let mut names = Vec::new();
-    for d in devices {
-        if d.default_input_config().is_ok()
-            && let Ok(desc) = d.description()
-        {
-            names.push(desc.name().to_string());
+        let mut names = Vec::new();
+        for d in devices {
+            if d.default_input_config().is_ok()
+                && let Ok(desc) = d.description()
+            {
+                names.push(desc.name().to_string());
+            }
         }
-    }
-    Ok(names)
+        Ok(names)
+    })
 }
 
 /// Return the name of the default input device, if any.
 #[must_use]
 pub fn default_input_device_name() -> Option<String> {
-    let host = cpal::default_host();
-    let device = host.default_input_device()?;
-    device.description().ok().map(|d| d.name().to_string())
+    with_stderr_suppressed(|| {
+        let host = cpal::default_host();
+        let device = host.default_input_device()?;
+        device.description().ok().map(|d| d.name().to_string())
+    })
 }
 
 /// Manages microphone capture via cpal.

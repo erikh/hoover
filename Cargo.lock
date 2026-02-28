@@ -1204,6 +1204,7 @@ dependencies = [
  "git2",
  "gitea-sdk",
  "hound",
+ "libc",
  "octocrab",
  "ort",
  "rand 0.9.2",
