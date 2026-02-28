@@ -1,14 +1,11 @@
-/// A placeholder that does nothing of consequence.
-pub fn placeholder() -> &'static str {
-    "nothing to see here"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn placeholder_returns_something() {
-        assert_eq!(placeholder(), "nothing to see here");
-    }
-}
+pub mod audio;
+pub mod config;
+pub mod error;
+#[cfg(feature = "mcp")]
+pub mod mcp;
+pub mod net;
+pub mod output;
+pub mod recording;
+pub mod speaker;
+pub mod stt;
+pub mod vcs;
