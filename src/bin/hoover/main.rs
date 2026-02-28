@@ -8,7 +8,7 @@ use hoover::config::Config;
 use hoover::error::HooverError;
 
 #[derive(Parser)]
-#[command(name = "hoover", about = "spy on yourself for good")]
+#[command(name = "hoover", about = "Spy on yourself for good")]
 struct Cli {
     /// Path to config file
     #[arg(long, global = true)]
