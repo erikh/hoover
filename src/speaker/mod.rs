@@ -20,7 +20,7 @@ pub fn extract_embedding(session: &mut Session, samples: &[f32]) -> Result<Vec<f
         .map_err(|e| HooverError::Speaker(format!("failed to create input tensor: {e}")))?;
 
     let outputs = session
-        .run(ort::inputs!["input" => input_tensor])
+        .run(ort::inputs![input_tensor])
         .map_err(|e| HooverError::Speaker(format!("model inference failed: {e}")))?;
 
     let (_shape, data) = outputs[0]
