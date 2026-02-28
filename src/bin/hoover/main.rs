@@ -110,6 +110,13 @@ enum Command {
         pick: bool,
     },
 
+    /// Create a new configuration file
+    ///
+    /// Walks through an interactive setup to configure audio input,
+    /// speech-to-text backend, output directory, speaker identification,
+    /// and version control. Writes the result to the config file.
+    Init,
+
     /// Start the MCP server (stdio transport)
     ///
     /// Exposes transcription data over the Model Context Protocol,
@@ -155,6 +162,7 @@ fn run(cli: Cli) -> Result<(), HooverError> {
             ref set,
             pick,
         } => run_devices(&cli, set.as_deref(), pick),
+        Command::Init => run_init(&cli),
         _ => run_with_config(cli),
     }
 }
@@ -264,6 +272,287 @@ fn run_with_config(cli: Cli) -> Result<(), HooverError> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(hoover::mcp::run_mcp_server(config))
         }
-        Command::Devices { .. } => unreachable!(),
+        Command::Devices { .. } | Command::Init => unreachable!(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt helpers
+// ---------------------------------------------------------------------------
+
+fn prompt(msg: &str) -> Result<String, HooverError> {
+    print!("{msg}");
+    std::io::stdout()
+        .flush()
+        .map_err(|e| HooverError::Other(format!("failed to flush stdout: {e}")))?;
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_line(&mut buf)
+        .map_err(|e| HooverError::Other(format!("failed to read input: {e}")))?;
+    Ok(buf.trim().to_string())
+}
+
+fn prompt_default(msg: &str, default: &str) -> Result<String, HooverError> {
+    let input = prompt(&format!("{msg} [{default}]: "))?;
+    if input.is_empty() {
+        Ok(default.to_string())
+    } else {
+        Ok(input)
+    }
+}
+
+fn prompt_yes_no(msg: &str, default_yes: bool) -> Result<bool, HooverError> {
+    let hint = if default_yes { "Y/n" } else { "y/N" };
+    let input = prompt(&format!("{msg} [{hint}]: "))?;
+    if input.is_empty() {
+        return Ok(default_yes);
+    }
+    match input.to_lowercase().as_str() {
+        "y" | "yes" => Ok(true),
+        "n" | "no" => Ok(false),
+        _ => Ok(default_yes),
+    }
+}
+
+fn prompt_choice(msg: &str, options: &[&str]) -> Result<usize, HooverError> {
+    println!("{msg}");
+    for (i, opt) in options.iter().enumerate() {
+        println!("  {}: {opt}", i + 1);
+    }
+    let input = prompt(&format!("Select [1-{}]: ", options.len()))?;
+    let choice: usize = input
+        .parse()
+        .map_err(|_| HooverError::Other("invalid selection: enter a number".to_string()))?;
+    if choice < 1 || choice > options.len() {
+        return Err(HooverError::Other(format!(
+            "selection out of range: pick 1-{}",
+            options.len()
+        )));
+    }
+    Ok(choice - 1)
+}
+
+// ---------------------------------------------------------------------------
+// YAML builder helper
+// ---------------------------------------------------------------------------
+
+fn yaml_section<'a>(
+    root: &'a mut serde_yaml_ng::Mapping,
+    key: &str,
+) -> Result<&'a mut serde_yaml_ng::Mapping, HooverError> {
+    let k = serde_yaml_ng::Value::String(key.to_string());
+    root.entry(k)
+        .or_insert_with(|| {
+            serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
+        })
+        .as_mapping_mut()
+        .ok_or_else(|| HooverError::Config(format!("{key} section is not a mapping")))
+}
+
+// ---------------------------------------------------------------------------
+// hoover init
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_lines)]
+fn run_init(cli: &Cli) -> Result<(), HooverError> {
+    use serde_yaml_ng::{Mapping, Value};
+
+    let path = config_path(cli);
+
+    // 1. Config path check
+    if path.exists() {
+        let overwrite = prompt_yes_no(
+            &format!("Config file already exists at {}. Overwrite?", path.display()),
+            false,
+        )?;
+        if !overwrite {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
+    let mut root = Mapping::new();
+
+    // 2. Audio device
+    println!();
+    let pick_device = prompt_yes_no("Pick an audio input device?", true)?;
+    if pick_device {
+        let (devices, default_name) = list_devices()?;
+        if devices.is_empty() {
+            println!("No audio input devices found, skipping.");
+        } else {
+            println!("Available audio input devices:");
+            print_device_list(&devices, default_name.as_deref());
+            println!();
+            let input = prompt(&format!(
+                "Select device [1-{}] (Enter to skip): ",
+                devices.len()
+            ))?;
+            if let Ok(choice) = input.parse::<usize>()
+                && choice >= 1
+                && choice <= devices.len()
+            {
+                let audio = yaml_section(&mut root, "audio")?;
+                audio.insert(
+                    Value::String("device".to_string()),
+                    Value::String(devices[choice - 1].clone()),
+                );
+            }
+        }
+    }
+
+    // 3. STT backend
+    println!();
+    let backend_idx = prompt_choice(
+        "Speech-to-text backend:",
+        &["Whisper (default)", "Vosk", "OpenAI"],
+    )?;
+    match backend_idx {
+        0 => {
+            // Whisper — only write non-default model size
+            let model = prompt_default(
+                "Whisper model size (tiny/base/small/medium/large)",
+                "base",
+            )?;
+            if model != "base" {
+                let stt = yaml_section(&mut root, "stt")?;
+                stt.insert(
+                    Value::String("whisper_model_size".to_string()),
+                    Value::String(model),
+                );
+            }
+        }
+        1 => {
+            // Vosk
+            let stt = yaml_section(&mut root, "stt")?;
+            stt.insert(
+                Value::String("backend".to_string()),
+                Value::String("vosk".to_string()),
+            );
+            let model_path = prompt("Vosk model path: ")?;
+            if !model_path.is_empty() {
+                stt.insert(
+                    Value::String("model_path".to_string()),
+                    Value::String(model_path),
+                );
+            }
+        }
+        2 => {
+            // OpenAI
+            let stt = yaml_section(&mut root, "stt")?;
+            stt.insert(
+                Value::String("backend".to_string()),
+                Value::String("openai".to_string()),
+            );
+            let api_key = prompt("OpenAI API key: ")?;
+            if !api_key.is_empty() {
+                stt.insert(
+                    Value::String("openai_api_key".to_string()),
+                    Value::String(api_key),
+                );
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    // 4. Language
+    println!();
+    let lang = prompt_default("Language", "en")?;
+    if lang != "en" {
+        let stt = yaml_section(&mut root, "stt")?;
+        stt.insert(
+            Value::String("language".to_string()),
+            Value::String(lang),
+        );
+    }
+
+    // 5. Output directory
+    println!();
+    let default_out = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("hoover")
+        .to_string_lossy()
+        .to_string();
+    let out_dir = prompt_default("Output directory", &default_out)?;
+    if out_dir != default_out {
+        let output = yaml_section(&mut root, "output")?;
+        output.insert(
+            Value::String("directory".to_string()),
+            Value::String(out_dir),
+        );
+    }
+
+    // 6. Speaker identification
+    println!();
+    let speaker_enabled = prompt_yes_no("Enable speaker identification?", false)?;
+    if speaker_enabled {
+        let speaker = yaml_section(&mut root, "speaker")?;
+        speaker.insert(
+            Value::String("enabled".to_string()),
+            Value::Bool(true),
+        );
+        let filter = prompt_yes_no(
+            "Filter out unrecognized speakers?",
+            false,
+        )?;
+        if filter {
+            speaker.insert(
+                Value::String("filter_unknown".to_string()),
+                Value::Bool(true),
+            );
+        }
+    }
+
+    // 7. VCS
+    println!();
+    let vcs_enabled = prompt_yes_no("Enable version control (git)?", false)?;
+    if vcs_enabled {
+        let vcs = yaml_section(&mut root, "vcs")?;
+        vcs.insert(
+            Value::String("enabled".to_string()),
+            Value::Bool(true),
+        );
+        let auto_commit = prompt_yes_no("Auto-commit after each recording chunk?", false)?;
+        if auto_commit {
+            vcs.insert(
+                Value::String("auto_commit".to_string()),
+                Value::Bool(true),
+            );
+        }
+        let auto_push = prompt_yes_no("Auto-push after commits?", false)?;
+        if auto_push {
+            vcs.insert(
+                Value::String("auto_push".to_string()),
+                Value::Bool(true),
+            );
+        }
+    }
+
+    // 8. Write config
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            HooverError::Config(format!(
+                "failed to create config directory {}: {e}",
+                parent.display()
+            ))
+        })?;
+    }
+
+    let yaml = serde_yaml_ng::to_string(&Value::Mapping(root)).map_err(|e| {
+        HooverError::Config(format!("failed to serialize config: {e}"))
+    })?;
+
+    std::fs::write(&path, &yaml).map_err(|e| {
+        HooverError::Config(format!(
+            "failed to write config file {}: {e}",
+            path.display()
+        ))
+    })?;
+
+    // 9. Summary
+    println!();
+    println!("Config written to {}", path.display());
+    println!("Run `hoover record` to start transcribing.");
+
+    Ok(())
 }
