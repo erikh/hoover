@@ -8,13 +8,27 @@ use hoover::config::Config;
 use hoover::error::HooverError;
 
 #[derive(Parser)]
-#[command(name = "hoover", about = "Spy on yourself for good")]
+#[command(
+    name = "hoover",
+    about = "Spy on yourself for good",
+    long_about = "Hoover is a continuous audio transcription tool that captures microphone \
+        input, transcribes it using speech-to-text, and stores timestamped daily \
+        markdown logs. It supports speaker identification to isolate your voice \
+        and protect the privacy of others, version-controlled output with GitHub \
+        and Gitea integration, encrypted UDP streaming between machines, and an \
+        MCP server for AI assistant integration."
+)]
 struct Cli {
     /// Path to config file
+    ///
+    /// Defaults to ~/.config/hoover/config.yaml if not specified.
     #[arg(long, global = true)]
     config: Option<PathBuf>,
 
     /// Enable verbose logging
+    ///
+    /// Sets the log level to debug for the hoover crate, showing detailed
+    /// information about audio capture, transcription, and VCS operations.
     #[arg(long, short, global = true)]
     verbose: bool,
 
@@ -25,21 +39,47 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Start recording from the microphone (foreground)
+    ///
+    /// Captures audio from the configured input device, transcribes it in
+    /// chunks using the configured STT backend, and appends timestamped
+    /// results to a daily markdown file. If speaker identification is
+    /// enabled, segments are tagged with the recognized speaker name.
+    /// Runs until interrupted with Ctrl+C.
     Record,
 
     /// Manually push the transcription repository
+    ///
+    /// Pushes the output directory's git repository to the configured
+    /// remote. If a GitHub or Gitea token is available (from config,
+    /// environment variables, or the gh CLI), it will be used to
+    /// authenticate the push over HTTPS.
     Push,
 
     /// Manually trigger a forge action (GitHub/Gitea workflow)
+    ///
+    /// Dispatches a workflow run on the configured GitHub Actions or Gitea
+    /// Actions workflow. Requires a token and repository to be configured
+    /// or detectable from the environment.
     Trigger,
 
     /// Enroll a speaker voice profile
+    ///
+    /// Records a short audio sample and computes an ECAPA-TDNN voice
+    /// embedding that is saved as a speaker profile. Once enrolled,
+    /// hoover can identify this speaker during transcription and tag
+    /// their segments accordingly. Speak for 10-30 seconds, then press
+    /// Ctrl+C to finish enrollment.
     Enroll {
         /// Name of the speaker to enroll
         name: String,
     },
 
     /// Send audio to a remote hoover instance via encrypted UDP
+    ///
+    /// Streams audio data to a remote hoover instance over AES-256-GCM
+    /// encrypted UDP. The shared key file must match on both ends.
+    /// Packets are serial-numbered for ordering and replay detection.
+    /// Can send from a file or read audio from stdin.
     Send {
         /// Target address (host:port)
         target: String,
@@ -49,11 +89,17 @@ enum Command {
         file: Option<PathBuf>,
 
         /// Path to the shared key file
+        ///
+        /// Defaults to ~/.config/hoover/udp.key if not specified.
         #[arg(long)]
         key_file: Option<PathBuf>,
     },
 
     /// List available audio input devices
+    ///
+    /// Shows all audio input devices recognized by the system. Use --pick
+    /// to interactively select one and save it to your config file, or
+    /// use --set to write a device name directly.
     Devices {
         /// Write the chosen device name to the config file
         #[arg(long, conflicts_with = "pick")]
@@ -65,6 +111,10 @@ enum Command {
     },
 
     /// Start the MCP server (stdio transport)
+    ///
+    /// Exposes transcription data over the Model Context Protocol,
+    /// allowing AI assistants to search and query your transcription
+    /// history. Communicates over stdin/stdout.
     #[cfg(feature = "mcp")]
     Mcp,
 }
