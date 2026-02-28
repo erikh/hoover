@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -55,8 +56,12 @@ enum Command {
     /// List available audio input devices
     Devices {
         /// Write the chosen device name to the config file
-        #[arg(long)]
+        #[arg(long, conflicts_with = "pick")]
         set: Option<String>,
+
+        /// Interactively pick a device and save it to the config file
+        #[arg(long, conflicts_with = "set")]
+        pick: bool,
     },
 
     /// Start the MCP server (stdio transport)
@@ -96,12 +101,32 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), HooverError> {
     match cli.command {
-        Command::Devices { ref set } => run_devices(&cli, set.as_deref()),
+        Command::Devices {
+            ref set,
+            pick,
+        } => run_devices(&cli, set.as_deref(), pick),
         _ => run_with_config(cli),
     }
 }
 
-fn run_devices(cli: &Cli, set: Option<&str>) -> Result<(), HooverError> {
+fn list_devices() -> Result<(Vec<String>, Option<String>), HooverError> {
+    let devices = hoover::audio::capture::list_input_devices()?;
+    let default_name = hoover::audio::capture::default_input_device_name();
+    Ok((devices, default_name))
+}
+
+fn print_device_list(devices: &[String], default_name: Option<&str>) {
+    for (i, name) in devices.iter().enumerate() {
+        let marker = if default_name == Some(name.as_str()) {
+            " (default)"
+        } else {
+            ""
+        };
+        println!("  {}: {name}{marker}", i + 1);
+    }
+}
+
+fn run_devices(cli: &Cli, set: Option<&str>, pick: bool) -> Result<(), HooverError> {
     if let Some(device_name) = set {
         let path = config_path(cli);
         Config::set_audio_device(&path, device_name)?;
@@ -109,21 +134,46 @@ fn run_devices(cli: &Cli, set: Option<&str>) -> Result<(), HooverError> {
         return Ok(());
     }
 
-    let devices = hoover::audio::capture::list_input_devices()?;
-    let default_name = hoover::audio::capture::default_input_device_name();
+    let (devices, default_name) = list_devices()?;
 
     if devices.is_empty() {
         println!("No audio input devices found.");
         return Ok(());
     }
 
-    for (i, name) in devices.iter().enumerate() {
-        let marker = if default_name.as_deref() == Some(name.as_str()) {
-            " (default)"
-        } else {
-            ""
-        };
-        println!("  {}: {name}{marker}", i + 1);
+    if pick {
+        println!("Available audio input devices:");
+        print_device_list(&devices, default_name.as_deref());
+        println!();
+
+        print!("Select device [1-{}]: ", devices.len());
+        std::io::stdout()
+            .flush()
+            .map_err(|e| HooverError::Other(format!("failed to flush stdout: {e}")))?;
+
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| HooverError::Other(format!("failed to read input: {e}")))?;
+
+        let choice: usize = input
+            .trim()
+            .parse()
+            .map_err(|_| HooverError::Other("invalid selection: enter a number".to_string()))?;
+
+        if choice < 1 || choice > devices.len() {
+            return Err(HooverError::Other(format!(
+                "selection out of range: pick 1-{}",
+                devices.len()
+            )));
+        }
+
+        let selected = &devices[choice - 1];
+        let path = config_path(cli);
+        Config::set_audio_device(&path, selected)?;
+        println!("Set audio device to: {selected}");
+    } else {
+        print_device_list(&devices, default_name.as_deref());
     }
 
     Ok(())

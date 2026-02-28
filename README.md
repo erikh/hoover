@@ -13,7 +13,9 @@ timestamped daily markdown logs.
   flags.
 - **Speaker identification** -- enroll speaker voice profiles using ECAPA-TDNN
   embeddings (ONNX), then automatically tag transcription segments with speaker
-  names.
+  names. Use this to isolate your own voice and protect the privacy of others --
+  enable `filter_unknown` to drop segments that don't match an enrolled profile,
+  ensuring only your speech is recorded.
 - **Daily markdown output** -- transcriptions are written to date-stamped
   markdown files (`YYYY-MM-DD.md`) with timestamps and optional speaker labels.
   Overlapping segments are deduplicated.
