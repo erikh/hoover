@@ -1,8 +1,8 @@
-use crate::config::GiteaConfig;
+use super::resolve::ResolvedGitea;
 use crate::error::{HooverError, Result};
 
 /// Trigger a Gitea Actions workflow or perform API operations.
-pub async fn trigger_workflow(config: &GiteaConfig) -> Result<()> {
+pub async fn trigger_workflow(config: &ResolvedGitea) -> Result<()> {
     let _client = gitea_sdk::Client::new(&config.url, gitea_sdk::Auth::Token(&config.token));
 
     // Gitea's API for dispatching workflows: POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches

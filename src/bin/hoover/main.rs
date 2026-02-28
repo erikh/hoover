@@ -52,6 +52,13 @@ enum Command {
         key_file: Option<PathBuf>,
     },
 
+    /// List available audio input devices
+    Devices {
+        /// Write the chosen device name to the config file
+        #[arg(long)]
+        set: Option<String>,
+    },
+
     /// Start the MCP server (stdio transport)
     #[cfg(feature = "mcp")]
     Mcp,
@@ -60,6 +67,10 @@ enum Command {
 fn load_config(cli: &Cli) -> Result<Config, HooverError> {
     let path = cli.config.clone().unwrap_or_else(Config::default_path);
     Config::load(&path)
+}
+
+fn config_path(cli: &Cli) -> PathBuf {
+    cli.config.clone().unwrap_or_else(Config::default_path)
 }
 
 fn init_logging(verbose: bool) {
@@ -84,6 +95,41 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), HooverError> {
+    match cli.command {
+        Command::Devices { ref set } => run_devices(&cli, set.as_deref()),
+        _ => run_with_config(cli),
+    }
+}
+
+fn run_devices(cli: &Cli, set: Option<&str>) -> Result<(), HooverError> {
+    if let Some(device_name) = set {
+        let path = config_path(cli);
+        Config::set_audio_device(&path, device_name)?;
+        println!("Set audio device to: {device_name}");
+        return Ok(());
+    }
+
+    let devices = hoover::audio::capture::list_input_devices()?;
+    let default_name = hoover::audio::capture::default_input_device_name();
+
+    if devices.is_empty() {
+        println!("No audio input devices found.");
+        return Ok(());
+    }
+
+    for (i, name) in devices.iter().enumerate() {
+        let marker = if default_name.as_deref() == Some(name.as_str()) {
+            " (default)"
+        } else {
+            ""
+        };
+        println!("  {}: {name}{marker}", i + 1);
+    }
+
+    Ok(())
+}
+
+fn run_with_config(cli: Cli) -> Result<(), HooverError> {
     let config = load_config(&cli)?;
 
     match cli.command {
@@ -118,5 +164,6 @@ fn run(cli: Cli) -> Result<(), HooverError> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(hoover::mcp::run_mcp_server(config))
         }
+        Command::Devices { .. } => unreachable!(),
     }
 }

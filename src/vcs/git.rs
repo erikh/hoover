@@ -43,7 +43,10 @@ pub fn add_and_commit(path: &Path, message: &str) -> Result<()> {
 }
 
 /// Push to a named remote.
-pub fn push_repo(path: &Path, remote_name: &str) -> Result<()> {
+///
+/// When `token` is provided the push authenticates over HTTPS using
+/// `x-access-token` as the username and the token as the password.
+pub fn push_repo(path: &Path, remote_name: &str, token: Option<&str>) -> Result<()> {
     let repo = Repository::open(path)?;
 
     let mut remote = repo.find_remote(remote_name).map_err(HooverError::Git)?;
@@ -56,7 +59,18 @@ pub fn push_repo(path: &Path, remote_name: &str) -> Result<()> {
 
     let refspec = format!("{refname}:{refname}");
 
-    remote.push(&[&refspec], None)?;
+    if let Some(tok) = token {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        let tok = tok.to_string();
+        callbacks.credentials(move |_url, _username, _allowed| {
+            git2::Cred::userpass_plaintext("x-access-token", &tok)
+        });
+        let mut push_opts = git2::PushOptions::new();
+        push_opts.remote_callbacks(callbacks);
+        remote.push(&[&refspec], Some(&mut push_opts))?;
+    } else {
+        remote.push(&[&refspec], None)?;
+    }
 
     tracing::info!("pushed to {remote_name}");
     Ok(())

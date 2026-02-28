@@ -230,20 +230,20 @@ impl Default for VcsConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct GithubConfig {
-    pub token: String,
-    pub owner: String,
-    pub repo: String,
+    pub token: Option<String>,
+    pub owner: Option<String>,
+    pub repo: Option<String>,
     pub workflow: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct GiteaConfig {
-    pub url: String,
-    pub token: String,
-    pub owner: String,
-    pub repo: String,
+    pub url: Option<String>,
+    pub token: Option<String>,
+    pub owner: Option<String>,
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -346,6 +346,68 @@ impl Config {
         }
         PathBuf::from(path)
     }
+
+    /// Update the `audio.device` field in the config file, preserving all other content.
+    pub fn set_audio_device(config_path: &Path, device: &str) -> Result<()> {
+        let contents = if config_path.exists() {
+            std::fs::read_to_string(config_path).map_err(|e| {
+                HooverError::Config(format!(
+                    "failed to read config file {}: {e}",
+                    config_path.display()
+                ))
+            })?
+        } else {
+            String::from("{}")
+        };
+
+        let mut value: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(&contents).map_err(|e| {
+                HooverError::Config(format!(
+                    "failed to parse config file {}: {e}",
+                    config_path.display()
+                ))
+            })?;
+
+        let map = value
+            .as_mapping_mut()
+            .ok_or_else(|| HooverError::Config("config root is not a mapping".to_string()))?;
+
+        let audio_key = serde_yaml_ng::Value::String("audio".to_string());
+        let audio = map
+            .entry(audio_key)
+            .or_insert_with(|| serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new()));
+
+        let audio_map = audio
+            .as_mapping_mut()
+            .ok_or_else(|| HooverError::Config("audio section is not a mapping".to_string()))?;
+
+        audio_map.insert(
+            serde_yaml_ng::Value::String("device".to_string()),
+            serde_yaml_ng::Value::String(device.to_string()),
+        );
+
+        let yaml = serde_yaml_ng::to_string(&value).map_err(|e| {
+            HooverError::Config(format!("failed to serialize config: {e}"))
+        })?;
+
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                HooverError::Config(format!(
+                    "failed to create config directory {}: {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+
+        std::fs::write(config_path, yaml).map_err(|e| {
+            HooverError::Config(format!(
+                "failed to write config file {}: {e}",
+                config_path.display()
+            ))
+        })?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -439,5 +501,37 @@ mcp:
     fn expand_tilde_path() {
         let expanded = Config::expand_path("~/hoover");
         assert!(!expanded.to_string_lossy().starts_with('~'));
+    }
+
+    #[test]
+    fn parse_minimal_github_config() {
+        let yaml = r#"
+vcs:
+  enabled: true
+  github: {}
+"#;
+        let config: Config =
+            serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("parse failed: {e}"));
+        assert!(config.vcs.enabled);
+        let gh = config.vcs.github.unwrap_or_else(|| panic!("github missing"));
+        assert!(gh.token.is_none());
+        assert!(gh.owner.is_none());
+        assert!(gh.repo.is_none());
+    }
+
+    #[test]
+    fn set_audio_device_creates_and_updates() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.path().join("config.yaml");
+
+        // Create from scratch
+        Config::set_audio_device(&path, "My Mic").unwrap_or_else(|e| panic!("{e}"));
+        let config = Config::load(&path).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(config.audio.device.as_deref(), Some("My Mic"));
+
+        // Update existing
+        Config::set_audio_device(&path, "Other Mic").unwrap_or_else(|e| panic!("{e}"));
+        let config = Config::load(&path).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(config.audio.device.as_deref(), Some("Other Mic"));
     }
 }

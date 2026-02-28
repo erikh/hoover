@@ -1,10 +1,10 @@
 use octocrab::Octocrab;
 
-use crate::config::GithubConfig;
+use super::resolve::ResolvedGithub;
 use crate::error::{HooverError, Result};
 
 /// Trigger a GitHub Actions workflow dispatch.
-pub async fn trigger_workflow(config: &GithubConfig) -> Result<()> {
+pub async fn trigger_workflow(config: &ResolvedGithub) -> Result<()> {
     let workflow = config.workflow.as_deref().ok_or_else(|| {
         HooverError::Config("github.workflow must be set to trigger a workflow".to_string())
     })?;

@@ -3,6 +3,7 @@ pub mod git;
 pub mod gitea;
 #[cfg(feature = "github")]
 pub mod github;
+pub mod resolve;
 
 use crate::config::Config;
 use crate::error::{HooverError, Result};
@@ -16,20 +17,26 @@ pub fn push(config: &Config) -> Result<()> {
     }
 
     let output_dir = Config::expand_path(&config.output.directory);
-    git::push_repo(&output_dir, &config.vcs.remote)
+    let token = resolve::get_push_token(&config.vcs);
+    git::push_repo(&output_dir, &config.vcs.remote, token.as_deref())
 }
 
 /// Trigger a forge action (GitHub/Gitea workflow).
 #[allow(unused_variables)]
 pub async fn trigger(config: &Config) -> Result<()> {
+    let output_dir = Config::expand_path(&config.output.directory);
+    let remote = &config.vcs.remote;
+
     #[cfg(feature = "github")]
-    if let Some(ref gh) = config.vcs.github {
-        return github::trigger_workflow(gh).await;
+    if config.vcs.github.is_some() {
+        let resolved = resolve::resolve_github(&config.vcs, &output_dir, remote)?;
+        return github::trigger_workflow(&resolved).await;
     }
 
     #[cfg(feature = "gitea")]
-    if let Some(ref gt) = config.vcs.gitea {
-        return gitea::trigger_workflow(gt).await;
+    if config.vcs.gitea.is_some() {
+        let resolved = resolve::resolve_gitea(&config.vcs, &output_dir, remote)?;
+        return gitea::trigger_workflow(&resolved).await;
     }
 
     Err(HooverError::Config(
