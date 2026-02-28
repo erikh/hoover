@@ -23,8 +23,10 @@ timestamped daily markdown logs.
   a git repository. Supports triggering GitHub Actions or Gitea workflows on
   push.
 - **Encrypted UDP streaming** -- send audio between machines over AES-256-GCM
-  encrypted UDP with serial-number-based ordering and optional firewall
-  integration for failed decryption attempts.
+  encrypted UDP with serial-number-based ordering. The firewall integration
+  automatically blocks sources that fail decryption, protecting you from
+  impersonation by ensuring only trusted senders can feed audio into your
+  transcription pipeline.
 - **MCP server** -- exposes transcription data as an MCP (Model Context
   Protocol) tool server over stdio, allowing AI assistants to search and query
   your transcription history.
