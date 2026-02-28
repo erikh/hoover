@@ -3,6 +3,7 @@ pub mod config;
 pub mod error;
 #[cfg(feature = "mcp")]
 pub mod mcp;
+pub mod models;
 pub mod net;
 pub mod output;
 pub mod recording;

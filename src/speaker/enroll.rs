@@ -187,18 +187,20 @@ pub async fn run_enrollment(config: &Config, name: &str) -> Result<()> {
     Ok(())
 }
 
+const SPEAKER_MODEL_URL: &str =
+    "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/voxceleb_ECAPA512_LM.onnx";
+
 pub(crate) fn resolve_speaker_model() -> Result<std::path::PathBuf> {
     let data_dir = dirs::data_dir()
         .ok_or_else(|| HooverError::Speaker("could not determine data directory".to_string()))?;
 
     let model_path = data_dir.join("hoover/models/speaker_embedding.onnx");
 
-    if !model_path.exists() {
-        return Err(HooverError::Speaker(format!(
-            "speaker embedding model not found at {} — download an ECAPA-TDNN ONNX model",
-            model_path.display()
-        )));
-    }
+    crate::models::ensure_model(
+        &model_path,
+        SPEAKER_MODEL_URL,
+        "ECAPA-TDNN speaker embedding model",
+    )?;
 
     Ok(model_path)
 }

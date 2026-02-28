@@ -112,12 +112,12 @@ fn resolve_model_path(config: &SttConfig) -> Result<PathBuf> {
     let model_file = format!("ggml-{}.en.bin", config.whisper_model_size);
     let path = data_dir.join("hoover/models").join(&model_file);
 
-    if !path.exists() {
-        return Err(HooverError::Stt(format!(
-            "whisper model not found at {} — download it or set stt.model_path in config",
-            path.display()
-        )));
-    }
+    let url = format!(
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.en.bin",
+        config.whisper_model_size
+    );
+    let desc = format!("Whisper {} model", config.whisper_model_size);
+    crate::models::ensure_model(&path, &url, &desc)?;
 
     Ok(path)
 }
