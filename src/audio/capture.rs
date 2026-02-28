@@ -14,7 +14,9 @@ pub fn list_input_devices() -> Result<Vec<String>> {
 
     let mut names = Vec::new();
     for d in devices {
-        if let Ok(desc) = d.description() {
+        if d.default_input_config().is_ok()
+            && let Ok(desc) = d.description()
+        {
             names.push(desc.name().to_string());
         }
     }
