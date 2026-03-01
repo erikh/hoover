@@ -32,11 +32,14 @@ impl WhisperEngine {
     pub fn new(config: &SttConfig) -> Result<Self> {
         let model_path = resolve_model_path(config)?;
 
+        let mut params = WhisperContextParameters::default();
+        params.use_gpu(config.gpu);
+
         let ctx = WhisperContext::new_with_params(
             model_path
                 .to_str()
                 .ok_or_else(|| HooverError::Stt("model path contains invalid UTF-8".to_string()))?,
-            WhisperContextParameters::default(),
+            params,
         )
         .map_err(|e| HooverError::Stt(format!("failed to load whisper model: {e}")))?;
 

@@ -9,9 +9,39 @@ use ort::session::Session;
 use crate::error::{HooverError, Result};
 
 /// Load the ONNX speaker embedding model.
-pub fn load_embedding_model(model_path: &Path) -> Result<Session> {
-    Session::builder()
-        .and_then(|b| b.commit_from_file(model_path))
+pub fn load_embedding_model(model_path: &Path, gpu: bool) -> Result<Session> {
+    let builder = Session::builder()
+        .map_err(|e| HooverError::Speaker(format!("failed to create session builder: {e}")))?;
+
+    #[cfg(feature = "cuda")]
+    let builder = if gpu {
+        use ort::ep::CUDA;
+        builder
+            .with_execution_providers([CUDA::default().build()])
+            .map_err(|e| {
+                HooverError::Speaker(format!("failed to register CUDA execution provider: {e}"))
+            })?
+    } else {
+        builder
+    };
+
+    #[cfg(feature = "rocm")]
+    let builder = if gpu {
+        use ort::ep::ROCm;
+        builder
+            .with_execution_providers([ROCm::default().build()])
+            .map_err(|e| {
+                HooverError::Speaker(format!("failed to register ROCm execution provider: {e}"))
+            })?
+    } else {
+        builder
+    };
+
+    #[cfg(not(any(feature = "cuda", feature = "rocm")))]
+    let _ = gpu;
+
+    builder
+        .commit_from_file(model_path)
         .map_err(|e| HooverError::Speaker(format!("failed to load speaker embedding model: {e}")))
 }
 

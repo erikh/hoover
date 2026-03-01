@@ -139,6 +139,10 @@ pub struct SttConfig {
 
     #[serde(default = "default_openai_model")]
     pub openai_model: String,
+
+    /// Use GPU acceleration when available (requires the `cuda` or `rocm` feature).
+    #[serde(default = "default_true")]
+    pub gpu: bool,
 }
 
 impl Default for SttConfig {
@@ -150,6 +154,7 @@ impl Default for SttConfig {
             model_path: None,
             openai_api_key: None,
             openai_model: default_openai_model(),
+            gpu: true,
         }
     }
 }

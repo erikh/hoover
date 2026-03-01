@@ -1,7 +1,5 @@
 pub mod git;
-#[cfg(feature = "gitea")]
 pub mod gitea;
-#[cfg(feature = "github")]
 pub mod github;
 pub mod resolve;
 
@@ -22,25 +20,22 @@ pub fn push(config: &Config) -> Result<()> {
 }
 
 /// Trigger a forge action (GitHub/Gitea workflow).
-#[allow(unused_variables)]
 pub async fn trigger(config: &Config) -> Result<()> {
     let output_dir = Config::expand_path(&config.output.directory);
     let remote = &config.vcs.remote;
 
-    #[cfg(feature = "github")]
     if config.vcs.github.is_some() {
         let resolved = resolve::resolve_github(&config.vcs, &output_dir, remote)?;
         return github::trigger_workflow(&resolved).await;
     }
 
-    #[cfg(feature = "gitea")]
     if config.vcs.gitea.is_some() {
         let resolved = resolve::resolve_gitea(&config.vcs, &output_dir, remote)?;
         return gitea::trigger_workflow(&resolved).await;
     }
 
     Err(HooverError::Config(
-        "no forge configured (enable github or gitea feature and configure in config)".to_string(),
+        "no forge configured (set github or gitea section in config)".to_string(),
     ))
 }
 

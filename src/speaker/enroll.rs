@@ -125,7 +125,7 @@ pub fn remove_profile(profiles_dir: &std::path::Path, name: &str) -> Result<()> 
 /// Run speaker enrollment: record audio, extract embeddings, save profile.
 pub async fn run_enrollment(config: &Config, name: &str) -> Result<()> {
     let model_path = resolve_speaker_model(config.speaker.model_path.as_deref())?;
-    let mut session = load_embedding_model(&model_path)?;
+    let mut session = load_embedding_model(&model_path, config.stt.gpu)?;
 
     tracing::info!("Recording audio for speaker enrollment of '{name}'...");
     tracing::info!("Speak for 10-30 seconds, then press Ctrl+C to stop.");

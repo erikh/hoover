@@ -33,9 +33,9 @@ pub struct SpeakerMatch {
 }
 
 impl SpeakerIdentifier {
-    pub fn new(config: &SpeakerConfig) -> Result<Self> {
+    pub fn new(config: &SpeakerConfig, gpu: bool) -> Result<Self> {
         let model_path = super::enroll::resolve_speaker_model(config.model_path.as_deref())?;
-        let session = super::load_embedding_model(&model_path)?;
+        let session = super::load_embedding_model(&model_path, gpu)?;
         let profiles_dir = crate::config::Config::expand_path(&config.profiles_dir);
         let profiles = load_all_profiles(&profiles_dir)?;
 

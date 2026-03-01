@@ -9,8 +9,9 @@ timestamped daily markdown logs.
 - **Audio capture** -- records from your microphone using CPAL, with
   configurable chunk duration and overlap for continuous transcription.
 - **Multiple STT backends** -- supports Whisper (local, default), Vosk (local),
-  and OpenAI Whisper API (remote). Compile only what you need with feature
-  flags.
+  and OpenAI Whisper API (remote). All backends are always compiled in.
+- **GPU acceleration** -- NVIDIA CUDA (default) and AMD ROCm are supported as
+  compile-time features, with a runtime `gpu` toggle in the config.
 - **Speaker identification** -- enroll speaker voice profiles using ECAPA-TDNN
   embeddings (ONNX), then automatically tag transcription segments with speaker
   names. Use this to isolate your own voice and protect the privacy of others --
@@ -34,23 +35,36 @@ timestamped daily markdown logs.
 ## Build
 
 ```sh
-# Default (whisper backend)
+# Default (NVIDIA CUDA GPU acceleration)
 cargo build
 
-# All features
-cargo build --features "whisper,vosk,openai,github,gitea,mcp"
+# AMD ROCm GPU acceleration
+cargo build --no-default-features --features rocm
+
+# CPU only (no GPU)
+cargo build --no-default-features
 ```
 
 ### Feature flags
 
-| Feature   | Description                                    |
-|-----------|------------------------------------------------|
-| `whisper` | Local Whisper STT via whisper-rs (default)      |
-| `vosk`    | Local Vosk STT (requires libvosk system library)|
-| `openai`  | OpenAI Whisper API backend                      |
-| `github`  | GitHub Actions workflow trigger on push          |
-| `gitea`   | Gitea workflow trigger on push                   |
-| `mcp`     | MCP server for AI assistant integration          |
+All STT backends (Whisper, Vosk, OpenAI) and integrations (GitHub, Gitea, MCP)
+are always compiled in. The only feature flags control GPU acceleration:
+
+| Feature | Description                                         |
+|---------|-----------------------------------------------------|
+| `cuda`  | NVIDIA CUDA GPU acceleration (default)               |
+| `rocm`  | AMD ROCm/HIP GPU acceleration                        |
+| `nogpu` | Explicitly disable GPU (same as `--no-default-features`) |
+
+`cuda` and `rocm` are mutually exclusive. To switch from the default CUDA to
+ROCm, use `--no-default-features --features rocm`.
+
+### System dependencies
+
+- **libvosk** -- required for the Vosk STT backend (e.g. `pacman -S vosk-api`
+  on Arch/Manjaro)
+- **CUDA toolkit** -- required when building with the `cuda` feature
+- **ROCm/HIP** -- required when building with the `rocm` feature
 
 ## Usage
 
@@ -84,8 +98,13 @@ hoover trigger
 # Send audio to a remote hoover instance
 hoover send <host:port> [--file audio.wav] [--key-file key.bin]
 
-# Start MCP server (requires mcp feature)
+# Start MCP server
 hoover mcp
+
+# Generate shell completions
+hoover completions bash
+hoover completions zsh
+hoover completions fish
 ```
 
 ### Global options
@@ -116,6 +135,7 @@ stt:
   backend: whisper           # whisper | vosk | openai
   language: en
   whisper_model_size: base
+  gpu: true                  # use GPU acceleration when available
   # model_path: /path/to/model  # required for vosk
   # openai_api_key: sk-...      # required for openai
 
@@ -317,8 +337,7 @@ the git remote URL in the output directory.
 
 ## MCP server
 
-When compiled with the `mcp` feature, `hoover mcp` starts an MCP server on
-stdio with the following tools:
+`hoover mcp` starts an MCP server on stdio with the following tools:
 
 - `search_transcriptions` -- full-text search across all transcription files
   with optional date range filtering

@@ -20,7 +20,7 @@ audio:
 
 # ── Speech-to-text ─────────────────────────────────────────────────────────────
 stt:
-  # STT backend to use.  Compile the corresponding feature flag:
+  # STT backend to use:
   #   whisper  -- local Whisper via whisper-rs (default)
   #   vosk     -- local Vosk (requires libvosk)
   #   openai   -- remote OpenAI Whisper API
@@ -42,6 +42,11 @@ stt:
 
   # OpenAI model name.
   openai_model: whisper-1
+
+  # Use GPU acceleration for Whisper and speaker identification when available.
+  # Requires the cuda or rocm feature at compile time. Set to false to force
+  # CPU inference even when the binary was built with GPU support.
+  gpu: true
 
 # ── Speaker identification ─────────────────────────────────────────────────────
 speaker:
@@ -90,14 +95,14 @@ vcs:
   # Git remote name used for push / workflow triggers.
   remote: origin
 
-  # GitHub Actions integration (requires the "github" feature flag).
+  # GitHub Actions integration.
   # github:
   #   token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   #   owner: your-username
   #   repo: your-repo
   #   workflow: ci.yml    # workflow file to trigger on push
 
-  # Gitea workflow integration (requires the "gitea" feature flag).
+  # Gitea workflow integration.
   # gitea:
   #   url: https://gitea.example.com
   #   token: your-gitea-token
@@ -133,5 +138,5 @@ udp:
 mcp:
   # Enable the MCP (Model Context Protocol) server.
   # Start with `hoover mcp`; exposes transcription search tools over stdio
-  # for AI assistants.  Requires the "mcp" feature flag.
+  # for AI assistants.
   enabled: false

@@ -133,7 +133,6 @@ enum Command {
     /// Exposes transcription data over the Model Context Protocol,
     /// allowing AI assistants to search and query your transcription
     /// history. Communicates over stdin/stdout.
-    #[cfg(feature = "mcp")]
     Mcp,
 
     /// Generate shell completions
@@ -339,7 +338,6 @@ fn run_with_config(cli: Cli) -> Result<(), HooverError> {
                 key_file.as_deref(),
             ))
         }
-        #[cfg(feature = "mcp")]
         Command::Mcp => {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(hoover::mcp::run_mcp_server(config))

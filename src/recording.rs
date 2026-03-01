@@ -65,7 +65,7 @@ pub async fn run_recording(config: Config) -> Result<()> {
 
         // Initialize speaker identifier alongside STT
         let mut speaker_id = if speaker_config.enabled {
-            match crate::speaker::identify::SpeakerIdentifier::new(&speaker_config) {
+            match crate::speaker::identify::SpeakerIdentifier::new(&speaker_config, stt_config.gpu) {
                 Ok(id) => Some(id),
                 Err(e) => {
                     tracing::warn!("speaker identification disabled: {e}");
