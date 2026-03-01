@@ -103,8 +103,8 @@ All sections are optional with sensible defaults. See
 ```yaml
 audio:
   device: "My Microphone"    # omit for system default
-  chunk_duration_secs: 30
-  overlap_secs: 5
+  chunk_duration_secs: 15
+  overlap_secs: 3
 
 stt:
   backend: whisper           # whisper | vosk | openai
@@ -157,7 +157,7 @@ mcp:
 ## Recording behavior
 
 When `hoover record` is running, audio is captured in configurable chunks
-(default 30 seconds with 5 seconds of overlap) and sent to the STT engine.
+(default 15 seconds with 3 seconds of overlap) and sent to the STT engine.
 Non-speech audio such as keyboard tapping, mouse clicks, and other mechanical
 sounds is automatically filtered out using Whisper's no-speech probability
 detection. Common Whisper hallucinations from background noise (e.g.

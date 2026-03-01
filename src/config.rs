@@ -5,11 +5,11 @@ use serde::Deserialize;
 use crate::error::{HooverError, Result};
 
 const fn default_chunk_duration_secs() -> u64 {
-    30
+    15
 }
 
 const fn default_overlap_secs() -> u64 {
-    5
+    3
 }
 
 fn default_stt_backend() -> String {
@@ -422,7 +422,7 @@ mod tests {
         let yaml = "{}";
         let config: Config =
             serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("parse failed: {e}"));
-        assert_eq!(config.audio.chunk_duration_secs, 30);
+        assert_eq!(config.audio.chunk_duration_secs, 15);
         assert_eq!(config.stt.backend, "whisper");
         assert!(config.speaker.enabled);
     }

@@ -12,11 +12,11 @@ audio:
 
   # Length of each audio chunk sent to the STT engine, in seconds.
   # Longer chunks give more context but increase latency.
-  chunk_duration_secs: 30
+  chunk_duration_secs: 15
 
   # Overlap between consecutive chunks, in seconds.
   # Helps avoid cutting words at chunk boundaries.
-  overlap_secs: 5
+  overlap_secs: 3
 
 # ── Speech-to-text ─────────────────────────────────────────────────────────────
 stt:
