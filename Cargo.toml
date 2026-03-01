@@ -9,9 +9,9 @@ repository = "https://github.com/erikh/hoover"
 
 [features]
 default = ["cuda"]
-cuda = ["whisper-rs/cuda", "ort/cuda"]
-rocm = ["whisper-rs/hipblas", "ort/rocm"]
-nogpu = []
+cuda = ["whisper-rs/cuda", "ort/cuda", "ort/load-dynamic"]
+rocm = ["whisper-rs/hipblas", "ort/rocm", "ort/load-dynamic"]
+nogpu = ["ort/download-binaries", "ort/copy-dylibs", "ort/tls-native"]
 
 [[bin]]
 name = "hoover"
@@ -31,7 +31,7 @@ vosk = "0.3"
 reqwest = { version = "0.13", features = ["json", "multipart"] }
 
 # Speaker ID (always included)
-ort = "2.0.0-rc.11"
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray"] }
 mel_spec = "0.3"
 
 # Config

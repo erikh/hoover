@@ -42,7 +42,7 @@ cargo build
 cargo build --no-default-features --features rocm
 
 # CPU only (no GPU)
-cargo build --no-default-features
+cargo build --no-default-features --features nogpu
 ```
 
 ### Feature flags
@@ -54,10 +54,42 @@ are always compiled in. The only feature flags control GPU acceleration:
 |---------|-----------------------------------------------------|
 | `cuda`  | NVIDIA CUDA GPU acceleration (default)               |
 | `rocm`  | AMD ROCm/HIP GPU acceleration                        |
-| `nogpu` | Explicitly disable GPU (same as `--no-default-features`) |
+| `nogpu` | CPU only, statically links ONNX Runtime              |
 
 `cuda` and `rocm` are mutually exclusive. To switch from the default CUDA to
 ROCm, use `--no-default-features --features rocm`.
+
+### ONNX Runtime linking strategy
+
+The `cuda` and `rocm` features use ONNX Runtime in **dynamic loading** mode
+(`load-dynamic`). At runtime the binary calls `dlopen` to load
+`libonnxruntime.so` from the system, which in turn loads the matching CUDA or
+ROCm provider shared library. This avoids version mismatches between a
+statically bundled ORT and the system's GPU provider libraries, which can cause
+segfaults.
+
+The `nogpu` feature statically links ONNX Runtime (downloaded at build time),
+since there is no GPU provider library to conflict with.
+
+### Environment variables
+
+| Variable         | When needed        | Description                                      |
+|------------------|--------------------|--------------------------------------------------|
+| `CUDA_PATH`      | `cuda` builds      | Path to the CUDA toolkit (e.g. `/opt/cuda`)      |
+| `CUDACXX`        | `cuda` builds      | Path to `nvcc` (e.g. `/opt/cuda/bin/nvcc`)       |
+| `ORT_DYLIB_PATH` | `cuda`/`rocm` runs | Path to the system `libonnxruntime.so`            |
+
+These are typically set in a `.cargo/config.toml` for convenience:
+
+```toml
+[env]
+CUDA_PATH = "/opt/cuda"
+CUDACXX = "/opt/cuda/bin/nvcc"
+ORT_DYLIB_PATH = "/usr/lib/libonnxruntime.so"
+```
+
+On Arch/Manjaro, install `cuda` and `onnxruntime-cuda` (or `onnxruntime-rocm`)
+from the official repos to provide the toolkit and shared libraries.
 
 ### System dependencies
 
@@ -65,6 +97,9 @@ ROCm, use `--no-default-features --features rocm`.
   on Arch/Manjaro)
 - **CUDA toolkit** -- required when building with the `cuda` feature
 - **ROCm/HIP** -- required when building with the `rocm` feature
+- **onnxruntime** -- the system ONNX Runtime shared library is required at
+  runtime when using the `cuda` or `rocm` features (e.g.
+  `pacman -S onnxruntime-cuda`)
 
 ## Usage
 
