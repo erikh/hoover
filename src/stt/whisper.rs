@@ -8,6 +8,21 @@ use crate::error::{HooverError, Result};
 
 use super::{SttEngine, TranscriptionSegment};
 
+/// Segments with `no_speech` probability above this threshold are discarded.
+const NO_SPEECH_THRESHOLD: f32 = 0.6;
+
+/// Common Whisper hallucinations from non-speech audio (keyboard tapping, etc.).
+fn is_hallucinated_noise(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    // Whisper tends to hallucinate these from percussive/mechanical sounds
+    lower.starts_with('[') && lower.ends_with(']')
+        || lower.starts_with('(') && lower.ends_with(')')
+        || lower.contains("thank you")
+            && lower.len() < 30
+        || lower.contains("thanks for watching")
+        || lower.contains("subscribe")
+}
+
 pub struct WhisperEngine {
     ctx: WhisperContext,
     language: String,
@@ -58,13 +73,19 @@ impl SttEngine for WhisperEngine {
                 .get_segment(i)
                 .ok_or_else(|| HooverError::Stt(format!("segment {i} out of bounds")))?;
 
+            let no_speech_prob = segment.no_speech_probability();
+            if no_speech_prob > NO_SPEECH_THRESHOLD {
+                tracing::debug!("skipping segment {i}: no_speech_prob={no_speech_prob:.2}");
+                continue;
+            }
+
             let text = segment
                 .to_str()
                 .map_err(|e| HooverError::Stt(format!("failed to get segment text: {e}")))?
                 .trim()
                 .to_string();
 
-            if text.is_empty() {
+            if text.is_empty() || is_hallucinated_noise(&text) {
                 continue;
             }
 

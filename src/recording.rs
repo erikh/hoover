@@ -129,11 +129,33 @@ pub async fn run_recording(config: Config) -> Result<()> {
         }
     }
 
-    // Cleanup
-    capture.pause()?;
-
+    // Shutdown: stop capture and cancel UDP server
     if let Some(cancel_tx) = cancel_tx {
         let _ = cancel_tx.send(true);
+    }
+
+    // Drop capture to close the audio channel, which causes the audio pipeline
+    // thread to flush its accumulator and exit.
+    drop(capture);
+
+    // Drain any remaining audio chunks and forward them to the STT engine.
+    while let Some(chunk) = chunk_rx.recv().await {
+        if stt_tx.send(chunk).await.is_err() {
+            break;
+        }
+    }
+
+    // Drop stt_tx so the STT thread sees the channel close and exits after
+    // finishing its current work.
+    drop(stt_tx);
+
+    // Drain all remaining transcription results.
+    while let Some((segments, _chunk)) = result_rx.recv().await {
+        for segment in &segments {
+            if let Err(e) = writer.write_segment(segment, None) {
+                tracing::error!("output error: {e}");
+            }
+        }
     }
 
     // Final commit and push

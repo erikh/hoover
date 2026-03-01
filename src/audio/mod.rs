@@ -35,9 +35,16 @@ pub fn start_audio_pipeline(
             }
         };
 
+        tracing::debug!(
+            "audio pipeline: source_rate={sample_rate}, channels={channels}, chunk={chunk_duration}s, overlap={overlap}s"
+        );
+
         let mut accumulator = ChunkAccumulator::new(chunk_duration, overlap);
+        let mut total_raw = 0usize;
+        let mut total_resampled = 0usize;
 
         while let Ok(raw_samples) = raw_rx.recv() {
+            total_raw += raw_samples.len();
             let mono_16k = match resampler.process(&raw_samples) {
                 Ok(s) => s,
                 Err(e) => {
@@ -46,7 +53,20 @@ pub fn start_audio_pipeline(
                 }
             };
 
+            total_resampled += mono_16k.len();
+
+            if total_raw % (sample_rate as usize * channels as usize * 10) < raw_samples.len() {
+                tracing::debug!(
+                    "audio pipeline: raw={total_raw} samples, resampled={total_resampled} samples ({:.1}s at 16kHz)",
+                    total_resampled as f64 / 16000.0
+                );
+            }
+
             for chunk in accumulator.feed(&mono_16k) {
+                tracing::info!(
+                    "audio chunk ready: {:.1}s of audio",
+                    chunk.duration_secs
+                );
                 if chunk_tx.blocking_send(chunk).is_err() {
                     tracing::debug!("chunk receiver dropped, stopping audio pipeline");
                     return;

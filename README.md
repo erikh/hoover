@@ -55,6 +55,14 @@ cargo build --features "whisper,vosk,openai,github,gitea,mcp"
 ## Usage
 
 ```sh
+# Interactive first-time setup
+hoover init
+
+# List audio input devices, or pick/set one
+hoover devices
+hoover devices --pick
+hoover devices --set "My Microphone"
+
 # Start recording (foreground, Ctrl+C to stop)
 hoover record
 
@@ -78,6 +86,13 @@ hoover mcp
 
 - `--config <path>` -- path to config file (default: `~/.config/hoover/config.yaml`)
 - `--verbose` / `-v` -- enable debug logging
+
+### Getting started
+
+Run `hoover init` to walk through an interactive setup wizard. It will prompt
+you for audio device, STT backend, output directory, speaker identification,
+and version control settings, then write the config file. After that, run
+`hoover record` to start transcribing.
 
 ## Configuration
 
@@ -139,6 +154,21 @@ mcp:
   enabled: false
 ```
 
+## Recording behavior
+
+When `hoover record` is running, audio is captured in configurable chunks
+(default 30 seconds with 5 seconds of overlap) and sent to the STT engine.
+Non-speech audio such as keyboard tapping, mouse clicks, and other mechanical
+sounds is automatically filtered out using Whisper's no-speech probability
+detection. Common Whisper hallucinations from background noise (e.g.
+`[MUSIC]`, `(keyboard clicking)`, phantom "Thank you" segments) are also
+suppressed.
+
+When you press Ctrl+C, hoover performs a graceful shutdown: it flushes any
+buffered audio through the STT engine, writes all remaining transcription
+segments to the markdown file, and then runs the final git commit and push
+(if configured). No in-flight audio is lost.
+
 ## Speaker enrollment
 
 Hoover uses an ECAPA-TDNN ONNX model for speaker embeddings. The default model
@@ -152,6 +182,20 @@ hoover enroll "Alice"
 ```
 
 Profiles are saved as `.bin` files in the speaker profiles directory.
+
+## Authentication
+
+GitHub and Gitea push/trigger operations require an access token. Hoover
+resolves tokens in this order:
+
+1. `vcs.github.token` (or `vcs.gitea.token`) in the config file
+2. `GITHUB_TOKEN` environment variable (GitHub only)
+3. `GH_TOKEN` environment variable (GitHub only)
+4. `gh auth token` CLI fallback (GitHub only)
+5. `GITEA_TOKEN` environment variable (Gitea only)
+
+Owner and repo are resolved from the config, or detected automatically from
+the git remote URL in the output directory.
 
 ## MCP server
 
