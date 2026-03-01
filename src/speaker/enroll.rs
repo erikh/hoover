@@ -209,6 +209,15 @@ pub async fn run_enrollment(config: &Config, name: &str) -> Result<()> {
         *v /= n;
     }
 
+    // L2-normalize so the profile lives on the unit sphere, matching
+    // the normalization applied during continuous training.
+    let norm: f32 = avg.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for v in &mut avg {
+            *v /= norm;
+        }
+    }
+
     let profile = SpeakerProfile {
         name: name.to_string(),
         embedding: avg,

@@ -10,7 +10,12 @@ use super::{cosine_similarity, extract_embedding};
 
 /// Blending factor for continuous training (exponential moving average).
 /// Small values evolve the profile slowly; large values adapt faster.
-const EMA_ALPHA: f32 = 0.05;
+const EMA_ALPHA: f32 = 0.01;
+
+/// Only update the stored profile when the match confidence exceeds this
+/// threshold.  This is intentionally higher than `min_confidence` so that
+/// marginal matches don't gradually drag the profile off-center.
+const EMA_UPDATE_THRESHOLD: f32 = 0.85;
 
 /// Save updated profiles to disk every N successful identifications.
 const SAVE_INTERVAL: u32 = 10;
@@ -80,16 +85,34 @@ impl SpeakerIdentifier {
         }
 
         if best_score >= self.min_confidence {
-            // Continuously refine the matched profile via EMA
-            for (stored, &new) in self.profiles[best_idx].embedding.iter_mut().zip(embedding.iter()) {
-                *stored = (1.0 - EMA_ALPHA).mul_add(*stored, EMA_ALPHA * new);
-            }
             let name = self.profiles[best_idx].name.clone();
 
-            self.updates_since_save += 1;
-            if self.updates_since_save >= SAVE_INTERVAL {
-                self.save_profiles();
-                self.updates_since_save = 0;
+            // Only refine the profile when the match is strong enough to
+            // avoid drifting the embedding on marginal identifications.
+            if best_score >= EMA_UPDATE_THRESHOLD {
+                let profile = &mut self.profiles[best_idx];
+                for (stored, &new) in profile.embedding.iter_mut().zip(embedding.iter()) {
+                    *stored = (1.0 - EMA_ALPHA).mul_add(*stored, EMA_ALPHA * new);
+                }
+                // Re-normalize to the unit sphere so cosine similarity stays
+                // well-behaved over many updates.
+                let norm: f32 = profile
+                    .embedding
+                    .iter()
+                    .map(|x| x * x)
+                    .sum::<f32>()
+                    .sqrt();
+                if norm > 0.0 {
+                    for v in &mut profile.embedding {
+                        *v /= norm;
+                    }
+                }
+
+                self.updates_since_save += 1;
+                if self.updates_since_save >= SAVE_INTERVAL {
+                    self.save_profiles();
+                    self.updates_since_save = 0;
+                }
             }
 
             Ok(Some(SpeakerMatch {
