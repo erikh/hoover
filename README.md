@@ -203,19 +203,103 @@ More text in the same minute, no duplicate heading.
 Untagged text when the speaker is unknown.
 ```
 
-## Speaker enrollment
+## Speaker identification
 
-Hoover uses an ECAPA-TDNN ONNX model for speaker embeddings. The default model
-is auto-downloaded on first use. To use a custom ONNX model, set
-`speaker.model_path` in your config. The input tensor rank (2 or 3) is detected
-automatically, so any compatible ONNX speaker embedding model works.
+Speaker identification is enabled by default and runs alongside transcription.
+Each audio chunk is processed through an ECAPA-TDNN embedding model to produce a
+voice fingerprint, which is compared against enrolled speaker profiles. The
+closest match above the confidence threshold is attached to the transcription
+output as a speaker label.
+
+When multiple speakers are enrolled, hoover can be used to transcribe meetings
+and group conversations -- each segment is automatically tagged with the
+speaker's name, producing a readable transcript of who said what.
+
+### Embedding model
+
+Hoover uses an ECAPA-TDNN ONNX model (WeSpeaker) for speaker embeddings. The
+default model is auto-downloaded from HuggingFace on first use and cached at
+`~/.local/share/hoover/models/speaker_embedding.onnx`. To use a custom ONNX
+model, set `speaker.model_path` in your config. The input tensor rank (2 or 3)
+is detected automatically, so any compatible ONNX speaker embedding model works.
+
+Audio is converted to 80-dimensional log Mel filterbank features (Kaldi-compatible
+defaults: 16 kHz, 25 ms window, 10 ms hop) before being fed to the model.
+
+### Enrolling a speaker
+
+To enroll a speaker, run the `enroll` command and speak for 10--30 seconds:
 
 ```sh
 hoover enroll "Alice"
-# Speak for 10-30 seconds, then press Ctrl+C
+# Speak naturally for 10-30 seconds, then press Ctrl+C to finish
 ```
 
-Profiles are saved as `.bin` files in the speaker profiles directory.
+During enrollment, hoover records audio from your configured microphone, splits
+it into 3-second segments, extracts an embedding from each segment, and averages
+them to create a stable voice profile. At least 3 seconds of audio is required;
+longer recordings produce more robust profiles. The profile is saved as a `.bin`
+file in the profiles directory (default `~/.local/share/hoover/speakers/`).
+
+To re-enroll a speaker (e.g. to improve recognition), simply run `hoover enroll`
+again with the same name. The new profile overwrites the old one.
+
+### Managing speaker profiles
+
+List all enrolled speakers:
+
+```sh
+hoover speakers
+```
+
+Remove a speaker profile:
+
+```sh
+hoover speakers --remove "Alice"
+```
+
+### Continuous training
+
+Speaker profiles are automatically refined during recording. When a speaker is
+identified with confidence above the threshold, the stored embedding is updated
+using an exponential moving average (EMA) with a blending factor of 0.05. This
+means the profile slowly adapts to the speaker's voice over time, improving
+accuracy as more speech is recorded.
+
+Updated profiles are saved to disk every 10 successful identifications, and any
+pending updates are flushed on graceful shutdown (Ctrl+C). This continuous
+training happens transparently -- no manual re-enrollment is needed after the
+initial setup.
+
+### Privacy filtering
+
+Set `speaker.filter_unknown: true` to drop any audio segment that does not match
+an enrolled speaker profile. This ensures that only enrolled voices appear in the
+transcription output, protecting the privacy of bystanders and other speakers
+whose voices you have not enrolled.
+
+### Configuration reference
+
+| Option              | Default                              | Description                                                   |
+|---------------------|--------------------------------------|---------------------------------------------------------------|
+| `enabled`           | `true`                               | Enable or disable speaker identification                      |
+| `profiles_dir`      | `~/.local/share/hoover/speakers`     | Directory where `.bin` profile files are stored                |
+| `min_confidence`    | `0.7`                                | Cosine similarity threshold for a positive speaker match       |
+| `filter_unknown`    | `false`                              | Drop segments that don't match any enrolled speaker            |
+| `model_path`        | *(auto-download)*                    | Path to a custom ONNX speaker embedding model                 |
+
+### How identification works
+
+1. Each audio chunk (default 60 seconds) is processed through the ECAPA-TDNN
+   model to extract a 512-dimensional embedding vector.
+2. The embedding is compared against all enrolled profiles using cosine
+   similarity.
+3. If the highest similarity score is above `min_confidence`, the segment is
+   tagged with that speaker's name and the profile is refined via EMA.
+4. If no profile exceeds the threshold and `filter_unknown` is `false`, the
+   segment is written without a speaker tag.
+5. If no profile exceeds the threshold and `filter_unknown` is `true`, the
+   segment is silently discarded.
 
 ## Authentication
 
