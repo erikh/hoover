@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,7 +27,10 @@ jobs:
 
           echo "current=$current previous=$previous"
 
-          if [ "$current" != "$previous" ] && [ -n "$previous" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$current" >> "$GITHUB_OUTPUT"
+          elif [ "$current" != "$previous" ] && [ -n "$previous" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "version=$current" >> "$GITHUB_OUTPUT"
           else
@@ -129,8 +133,8 @@ jobs:
 
       - name: Create tag
         run: |
-          git tag "v${{ needs.check-version.outputs.version }}"
-          git push origin "v${{ needs.check-version.outputs.version }}"
+          git tag -f "v${{ needs.check-version.outputs.version }}"
+          git push origin "v${{ needs.check-version.outputs.version }}" --force
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
