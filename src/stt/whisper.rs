@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+};
 
 use crate::audio::buffer::AudioChunk;
 use crate::config::SttConfig;
@@ -24,7 +26,9 @@ fn is_hallucinated_noise(text: &str) -> bool {
 }
 
 pub struct WhisperEngine {
-    ctx: WhisperContext,
+    // Keep the context alive — the state references it internally.
+    _ctx: WhisperContext,
+    state: WhisperState,
     language: String,
 }
 
@@ -43,8 +47,15 @@ impl WhisperEngine {
         )
         .map_err(|e| HooverError::Stt(format!("failed to load whisper model: {e}")))?;
 
+        // Create the state once so GPU buffers are allocated up front and
+        // reused across all transcription chunks.
+        let state = ctx
+            .create_state()
+            .map_err(|e| HooverError::Stt(format!("failed to create whisper state: {e}")))?;
+
         Ok(Self {
-            ctx,
+            _ctx: ctx,
+            state,
             language: config.language.clone(),
         })
     }
@@ -52,11 +63,6 @@ impl WhisperEngine {
 
 impl SttEngine for WhisperEngine {
     fn transcribe(&mut self, chunk: &AudioChunk) -> Result<Vec<TranscriptionSegment>> {
-        let mut state = self
-            .ctx
-            .create_state()
-            .map_err(|e| HooverError::Stt(format!("failed to create whisper state: {e}")))?;
-
         let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: 1.0 });
         params.set_language(Some(&self.language));
         params.set_print_special(false);
@@ -86,15 +92,15 @@ impl SttEngine for WhisperEngine {
         // Set no-speech threshold via the params API as well.
         params.set_no_speech_thold(NO_SPEECH_THRESHOLD);
 
-        state
+        self.state
             .full(params, &chunk.samples_f32)
             .map_err(|e| HooverError::Stt(format!("whisper transcription failed: {e}")))?;
 
-        let n_segments = state.full_n_segments();
+        let n_segments = self.state.full_n_segments();
 
         let mut segments = Vec::new();
         for i in 0..n_segments {
-            let segment = state
+            let segment = self.state
                 .get_segment(i)
                 .ok_or_else(|| HooverError::Stt(format!("segment {i} out of bounds")))?;
 
