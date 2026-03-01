@@ -1,6 +1,6 @@
 [package]
 name = "hoover"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 authors = ["Erik Hollensbe <git@hollensbe.org>"]
 description = "Continuous audio transcription and dictation tool with speaker identification, GPU acceleration, and AI assistant integration"
