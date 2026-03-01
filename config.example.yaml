@@ -45,10 +45,10 @@ stt:
 
 # ── Speaker identification ─────────────────────────────────────────────────────
 speaker:
-  # Enable speaker identification.
+  # Enable speaker identification (on by default).
   # When enabled, each transcription segment is tagged with the closest
-  # enrolled speaker name (or "unknown" if below min_confidence).
-  enabled: false
+  # enrolled speaker name (or left untagged if below min_confidence).
+  enabled: true
 
   # Directory where enrolled speaker profile .bin files are stored.
   profiles_dir: ~/.local/share/hoover/speakers

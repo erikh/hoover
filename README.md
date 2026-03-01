@@ -114,7 +114,7 @@ stt:
   # openai_api_key: sk-...      # required for openai
 
 speaker:
-  enabled: false
+  enabled: true              # enabled by default
   profiles_dir: ~/.local/share/hoover/speakers
   min_confidence: 0.7
   filter_unknown: false      # drop segments from unrecognized speakers
@@ -164,10 +164,38 @@ detection. Common Whisper hallucinations from background noise (e.g.
 `[MUSIC]`, `(keyboard clicking)`, phantom "Thank you" segments) are also
 suppressed.
 
+Speaker identification is enabled by default. Each audio chunk is run through
+the ECAPA-TDNN embedding model alongside transcription, and the closest
+enrolled speaker name is attached to the output. If no profiles have been
+enrolled yet, segments are written without a speaker tag. Set
+`speaker.enabled: false` in the config to disable it.
+
 When you press Ctrl+C, hoover performs a graceful shutdown: it flushes any
 buffered audio through the STT engine, writes all remaining transcription
 segments to the markdown file, and then runs the final git commit and push
 (if configured). No in-flight audio is lost.
+
+### Output format
+
+Daily transcription files use `HH:MM` headings to group segments by minute.
+Segments within the same minute appear under a single heading. When speaker
+identification is active, the speaker name is shown as a bold prefix:
+
+```markdown
+# Friday, February 28, 2026
+
+## 14:30
+
+Hello, this is some transcribed text.
+
+More text in the same minute, no duplicate heading.
+
+## 14:31
+
+**Alice:** Speaker-tagged text when identification is enabled.
+
+Untagged text when the speaker is unknown.
+```
 
 ## Speaker enrollment
 

@@ -48,9 +48,10 @@ pub async fn run_recording(config: Config) -> Result<()> {
     // Create STT engine (runs in a dedicated thread for blocking operations)
     let (stt_tx, mut stt_rx) = mpsc::channel::<AudioChunk>(16);
     let (result_tx, mut result_rx) =
-        mpsc::channel::<(Vec<crate::stt::TranscriptionSegment>, AudioChunk)>(16);
+        mpsc::channel::<(Vec<crate::stt::TranscriptionSegment>, Option<String>)>(16);
 
     let stt_config = config.stt.clone();
+    let speaker_config = config.speaker.clone();
     std::thread::spawn(move || {
         let mut engine = match stt::create_engine(&stt_config) {
             Ok(e) => e,
@@ -62,10 +63,34 @@ pub async fn run_recording(config: Config) -> Result<()> {
 
         tracing::info!("STT engine '{}' initialized", engine.name());
 
+        // Initialize speaker identifier alongside STT
+        let mut speaker_id = if speaker_config.enabled {
+            match crate::speaker::identify::SpeakerIdentifier::new(&speaker_config) {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    tracing::warn!("speaker identification disabled: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         while let Some(chunk) = stt_rx.blocking_recv() {
+            let speaker_name = speaker_id.as_mut().and_then(|id| {
+                match id.identify(&chunk.samples_f32) {
+                    Ok(Some(m)) => m.name,
+                    Ok(None) => None, // filter_unknown suppressed this chunk
+                    Err(e) => {
+                        tracing::warn!("speaker identification error: {e}");
+                        None
+                    }
+                }
+            });
+
             match engine.transcribe(&chunk) {
                 Ok(segments) => {
-                    if result_tx.blocking_send((segments, chunk)).is_err() {
+                    if result_tx.blocking_send((segments, speaker_name)).is_err() {
                         break;
                     }
                 }
@@ -80,18 +105,6 @@ pub async fn run_recording(config: Config) -> Result<()> {
 
     // Initialize output writer
     let mut writer = MarkdownWriter::new(&config.output)?;
-
-    // Initialize speaker identifier if enabled
-    #[cfg(any())]
-    // Speaker ID is complex — for now, we skip it in the hot path
-    // and just pass None for speaker name. A full implementation would
-    // run the identifier in the STT thread.
-    let _speaker_id = if config.speaker.enabled {
-        // Would initialize SpeakerIdentifier here
-        None::<()>
-    } else {
-        None
-    };
 
     // Set up Ctrl+C handler
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -110,9 +123,9 @@ pub async fn run_recording(config: Config) -> Result<()> {
                     break;
                 }
             }
-            Some((segments, _chunk)) = result_rx.recv() => {
+            Some((segments, speaker)) = result_rx.recv() => {
                 for segment in &segments {
-                    if let Err(e) = writer.write_segment(segment, None) {
+                    if let Err(e) = writer.write_segment(segment, speaker.as_deref()) {
                         tracing::error!("output error: {e}");
                     }
                 }
@@ -150,9 +163,9 @@ pub async fn run_recording(config: Config) -> Result<()> {
     drop(stt_tx);
 
     // Drain all remaining transcription results.
-    while let Some((segments, _chunk)) = result_rx.recv().await {
+    while let Some((segments, speaker)) = result_rx.recv().await {
         for segment in &segments {
-            if let Err(e) = writer.write_segment(segment, None) {
+            if let Err(e) = writer.write_segment(segment, speaker.as_deref()) {
                 tracing::error!("output error: {e}");
             }
         }

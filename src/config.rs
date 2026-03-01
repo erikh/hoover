@@ -174,7 +174,7 @@ pub struct SpeakerConfig {
 impl Default for SpeakerConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             profiles_dir: default_profiles_dir(),
             min_confidence: default_min_confidence(),
             filter_unknown: false,
@@ -424,7 +424,7 @@ mod tests {
             serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("parse failed: {e}"));
         assert_eq!(config.audio.chunk_duration_secs, 30);
         assert_eq!(config.stt.backend, "whisper");
-        assert!(!config.speaker.enabled);
+        assert!(config.speaker.enabled);
     }
 
     #[test]
