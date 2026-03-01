@@ -47,6 +47,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libclang-dev cmake pkg-config
 
+      - name: Install libvosk
+        run: |
+          curl -sL https://github.com/alphacep/vosk-api/releases/download/v0.3.45/vosk-linux-x86_64-0.3.45.zip -o vosk.zip
+          unzip -q vosk.zip
+          sudo cp vosk-linux-x86_64-0.3.45/libvosk.so /usr/lib/
+          sudo ldconfig
+
       - name: Install cargo-deb
         run: cargo install cargo-deb
 
@@ -75,6 +82,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libclang-dev cmake pkg-config
+
+      - name: Install libvosk
+        run: |
+          curl -sL https://github.com/alphacep/vosk-api/releases/download/v0.3.45/vosk-linux-x86_64-0.3.45.zip -o vosk.zip
+          unzip -q vosk.zip
+          sudo cp vosk-linux-x86_64-0.3.45/libvosk.so /usr/lib/
+          sudo ldconfig
 
       - name: Install cargo-generate-rpm
         run: cargo install cargo-generate-rpm
