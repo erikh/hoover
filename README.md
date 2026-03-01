@@ -134,7 +134,7 @@ audio:
 stt:
   backend: whisper           # whisper | vosk | openai
   language: en
-  whisper_model_size: base
+  whisper_model_size: small
   gpu: true                  # use GPU acceleration when available
   # model_path: /path/to/model  # required for vosk
   # openai_api_key: sk-...      # required for openai

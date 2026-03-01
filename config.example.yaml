@@ -31,7 +31,7 @@ stt:
 
   # Whisper model size (tiny, base, small, medium, large).
   # Larger models are more accurate but slower and use more memory.
-  whisper_model_size: base
+  whisper_model_size: small
 
   # Path to a local STT model file.
   # Required for Vosk; optional for Whisper (auto-downloads by default).

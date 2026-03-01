@@ -57,12 +57,34 @@ impl SttEngine for WhisperEngine {
             .create_state()
             .map_err(|e| HooverError::Stt(format!("failed to create whisper state: {e}")))?;
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: 1.0 });
         params.set_language(Some(&self.language));
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+
+        // Accuracy: use low temperature for deterministic decoding, with
+        // fallback increments if decoding quality is poor.
+        params.set_temperature(0.0);
+        params.set_temperature_inc(0.2);
+
+        // Suppress blank/silence tokens and non-speech tokens to reduce
+        // hallucinations.
+        params.set_suppress_blank(true);
+        params.set_suppress_nst(true);
+
+        // Tighten entropy and log-probability thresholds so low-confidence
+        // segments are retried at a higher temperature rather than emitted.
+        params.set_entropy_thold(2.4);
+        params.set_logprob_thold(-1.0);
+
+        // Feed prior segment text as context for the next segment to improve
+        // coherence across chunk boundaries.
+        params.set_no_context(false);
+
+        // Set no-speech threshold via the params API as well.
+        params.set_no_speech_thold(NO_SPEECH_THRESHOLD);
 
         state
             .full(params, &chunk.samples_f32)

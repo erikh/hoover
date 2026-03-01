@@ -21,7 +21,7 @@ fn default_language() -> String {
 }
 
 fn default_whisper_model_size() -> String {
-    "base".to_string()
+    "small".to_string()
 }
 
 fn default_openai_model() -> String {
