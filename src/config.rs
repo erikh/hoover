@@ -167,6 +167,8 @@ pub struct SpeakerConfig {
 
     #[serde(default)]
     pub filter_unknown: bool,
+
+    pub model_path: Option<String>,
 }
 
 impl Default for SpeakerConfig {
@@ -176,6 +178,7 @@ impl Default for SpeakerConfig {
             profiles_dir: default_profiles_dir(),
             min_confidence: default_min_confidence(),
             filter_unknown: false,
+            model_path: None,
         }
     }
 }

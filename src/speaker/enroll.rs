@@ -90,7 +90,7 @@ fn bincode_deserialize(data: &[u8]) -> Result<SpeakerProfile> {
 
 /// Run speaker enrollment: record audio, extract embeddings, save profile.
 pub async fn run_enrollment(config: &Config, name: &str) -> Result<()> {
-    let model_path = resolve_speaker_model()?;
+    let model_path = resolve_speaker_model(config.speaker.model_path.as_deref())?;
     let mut session = load_embedding_model(&model_path)?;
 
     tracing::info!("Recording audio for speaker enrollment of '{name}'...");
@@ -190,7 +190,18 @@ pub async fn run_enrollment(config: &Config, name: &str) -> Result<()> {
 const SPEAKER_MODEL_URL: &str =
     "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/voxceleb_ECAPA512_LM.onnx";
 
-pub(crate) fn resolve_speaker_model() -> Result<std::path::PathBuf> {
+pub(crate) fn resolve_speaker_model(custom_path: Option<&str>) -> Result<std::path::PathBuf> {
+    if let Some(path) = custom_path {
+        let expanded = Config::expand_path(path);
+        if !expanded.exists() {
+            return Err(HooverError::Speaker(format!(
+                "speaker model not found: {}",
+                expanded.display()
+            )));
+        }
+        return Ok(expanded);
+    }
+
     let data_dir = dirs::data_dir()
         .ok_or_else(|| HooverError::Speaker("could not determine data directory".to_string()))?;
 

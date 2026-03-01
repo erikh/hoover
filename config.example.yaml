@@ -1,0 +1,137 @@
+# Hoover configuration
+#
+# Place this file at ~/.config/hoover/config.yaml (or pass --config <path>).
+# All sections and fields are optional -- sensible defaults are used when omitted.
+# Run `hoover init` for an interactive setup wizard.
+
+# ── Audio capture ──────────────────────────────────────────────────────────────
+audio:
+  # Name of the input device to record from.
+  # Omit to use the system default microphone.
+  # device: "My Microphone"
+
+  # Length of each audio chunk sent to the STT engine, in seconds.
+  # Longer chunks give more context but increase latency.
+  chunk_duration_secs: 30
+
+  # Overlap between consecutive chunks, in seconds.
+  # Helps avoid cutting words at chunk boundaries.
+  overlap_secs: 5
+
+# ── Speech-to-text ─────────────────────────────────────────────────────────────
+stt:
+  # STT backend to use.  Compile the corresponding feature flag:
+  #   whisper  -- local Whisper via whisper-rs (default)
+  #   vosk     -- local Vosk (requires libvosk)
+  #   openai   -- remote OpenAI Whisper API
+  backend: whisper
+
+  # BCP-47 language code for transcription.
+  language: en
+
+  # Whisper model size (tiny, base, small, medium, large).
+  # Larger models are more accurate but slower and use more memory.
+  whisper_model_size: base
+
+  # Path to a local STT model file.
+  # Required for Vosk; optional for Whisper (auto-downloads by default).
+  # model_path: /path/to/model
+
+  # OpenAI API key (required when backend is "openai").
+  # openai_api_key: sk-...
+
+  # OpenAI model name.
+  openai_model: whisper-1
+
+# ── Speaker identification ─────────────────────────────────────────────────────
+speaker:
+  # Enable speaker identification.
+  # When enabled, each transcription segment is tagged with the closest
+  # enrolled speaker name (or "unknown" if below min_confidence).
+  enabled: false
+
+  # Directory where enrolled speaker profile .bin files are stored.
+  profiles_dir: ~/.local/share/hoover/speakers
+
+  # Minimum cosine-similarity score to accept a speaker match (0.0 -- 1.0).
+  # Lower values match more liberally; higher values require stronger matches.
+  min_confidence: 0.7
+
+  # When true, segments that don't match any enrolled speaker are dropped
+  # entirely. Useful for recording only your own voice and protecting the
+  # privacy of others.
+  filter_unknown: false
+
+  # Path to a custom ONNX speaker embedding model.
+  # Omit to auto-download the default WeSpeaker ECAPA-TDNN model.
+  # The model's input tensor rank (2 or 3) is detected automatically.
+  # model_path: /path/to/custom_speaker_model.onnx
+
+# ── Output ─────────────────────────────────────────────────────────────────────
+output:
+  # Directory where daily transcription markdown files are written.
+  # Files are named YYYY-MM-DD.md.
+  directory: ~/hoover
+
+  # Prepend a timestamp to each transcription segment.
+  timestamps: true
+
+# ── Version control ────────────────────────────────────────────────────────────
+vcs:
+  # Enable git integration for the output directory.
+  enabled: false
+
+  # Automatically commit after each chunk is transcribed.
+  auto_commit: false
+
+  # Automatically push after each commit.
+  auto_push: false
+
+  # Git remote name used for push / workflow triggers.
+  remote: origin
+
+  # GitHub Actions integration (requires the "github" feature flag).
+  # github:
+  #   token: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  #   owner: your-username
+  #   repo: your-repo
+  #   workflow: ci.yml    # workflow file to trigger on push
+
+  # Gitea workflow integration (requires the "gitea" feature flag).
+  # gitea:
+  #   url: https://gitea.example.com
+  #   token: your-gitea-token
+  #   owner: your-username
+  #   repo: your-repo
+
+# ── Encrypted UDP streaming ───────────────────────────────────────────────────
+udp:
+  # Enable the UDP listener to receive audio from remote hoover instances.
+  enabled: false
+
+  # Address and port to bind the UDP listener to.
+  bind: "0.0.0.0:9700"
+
+  # Path to the AES-256 symmetric key file (32 bytes, raw).
+  # Generate with: dd if=/dev/urandom of=~/.config/hoover/udp.key bs=32 count=1
+  key_file: ~/.config/hoover/udp.key
+
+  # Maximum number of out-of-order packets to buffer before dropping.
+  backlog: 1000
+
+  firewall:
+    # Automatically block IPs that send packets failing decryption.
+    enabled: false
+
+    # Firewall backend: firewalld or nftables.
+    backend: firewalld
+
+    # How long (in seconds) to block an offending IP.
+    block_duration_secs: 3600
+
+# ── MCP server ─────────────────────────────────────────────────────────────────
+mcp:
+  # Enable the MCP (Model Context Protocol) server.
+  # Start with `hoover mcp`; exposes transcription search tools over stdio
+  # for AI assistants.  Requires the "mcp" feature flag.
+  enabled: false

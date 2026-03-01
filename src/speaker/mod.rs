@@ -15,9 +15,36 @@ pub fn load_embedding_model(model_path: &Path) -> Result<Session> {
 }
 
 /// Extract a speaker embedding from 16kHz mono audio samples.
+///
+/// Dynamically adapts the input tensor shape to match the model's expected input rank
+/// (rank 2 for `[batch, samples]` or rank 3 for `[batch, 1, samples]`).
 pub fn extract_embedding(session: &mut Session, samples: &[f32]) -> Result<Vec<f32>> {
-    let input_tensor = ort::value::Tensor::from_array(([1usize, samples.len()], samples.to_vec()))
-        .map_err(|e| HooverError::Speaker(format!("failed to create input tensor: {e}")))?;
+    let input_rank = match session.inputs().first() {
+        Some(input) => match input.dtype() {
+            ort::value::ValueType::Tensor { shape, .. } => shape.len(),
+            other => {
+                return Err(HooverError::Speaker(format!(
+                    "expected tensor input, got: {other:?}"
+                )));
+            }
+        },
+        None => {
+            return Err(HooverError::Speaker(
+                "model has no inputs".to_string(),
+            ));
+        }
+    };
+
+    let input_tensor = match input_rank {
+        2 => ort::value::Tensor::from_array(([1usize, samples.len()], samples.to_vec())),
+        3 => ort::value::Tensor::from_array(([1usize, 1, samples.len()], samples.to_vec())),
+        n => {
+            return Err(HooverError::Speaker(format!(
+                "unsupported input tensor rank {n}, expected 2 or 3"
+            )));
+        }
+    }
+    .map_err(|e| HooverError::Speaker(format!("failed to create input tensor: {e}")))?;
 
     let outputs = session
         .run(ort::inputs![input_tensor])

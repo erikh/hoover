@@ -82,7 +82,8 @@ hoover mcp
 ## Configuration
 
 Hoover is configured via a YAML file (default `~/.config/hoover/config.yaml`).
-All sections are optional with sensible defaults.
+All sections are optional with sensible defaults. See
+[`config.example.yaml`](config.example.yaml) for a fully commented example.
 
 ```yaml
 audio:
@@ -102,6 +103,7 @@ speaker:
   profiles_dir: ~/.local/share/hoover/speakers
   min_confidence: 0.7
   filter_unknown: false      # drop segments from unrecognized speakers
+  # model_path: /path/to/custom_model.onnx  # omit to auto-download default
 
 output:
   directory: ~/hoover
@@ -139,9 +141,10 @@ mcp:
 
 ## Speaker enrollment
 
-Hoover uses an ECAPA-TDNN ONNX model for speaker embeddings. Download the model
-and place it at `~/.local/share/hoover/models/speaker_embedding.onnx`, then
-enroll speakers:
+Hoover uses an ECAPA-TDNN ONNX model for speaker embeddings. The default model
+is auto-downloaded on first use. To use a custom ONNX model, set
+`speaker.model_path` in your config. The input tensor rank (2 or 3) is detected
+automatically, so any compatible ONNX speaker embedding model works.
 
 ```sh
 hoover enroll "Alice"
