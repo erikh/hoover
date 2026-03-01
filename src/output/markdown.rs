@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use chrono::{Datelike, Local, NaiveDate};
 
@@ -44,19 +44,40 @@ impl MarkdownWriter {
         let date = local_time.date_naive();
         let path = self.file_path(date);
 
-        // Write header if this is a new day
-        let needs_header = self.current_date != Some(date);
-        if needs_header {
+        // Reset cached state on a new day
+        if self.current_date != Some(date) {
             self.current_date = Some(date);
             self.last_time = None;
             self.last_trailing_words.clear();
-            self.write_day_header(&path, date)?;
         }
 
         // Overlap deduplication
         let text = self.deduplicate_overlap(&segment.text);
         if text.is_empty() {
             return Ok(());
+        }
+
+        // Open once per entry, create if missing, always append
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .map_err(|e| HooverError::Output(format!("failed to open {}: {e}", path.display())))?;
+
+        // Write the day header if the file is empty (new or was deleted)
+        let needs_header = file
+            .metadata()
+            .map(|m| m.len() == 0)
+            .unwrap_or(true);
+        if needs_header {
+            self.last_time = None;
+            let header = Self::day_header(date);
+            file.write_all(header.as_bytes()).map_err(|e| {
+                HooverError::Output(format!(
+                    "failed to write header to {}: {e}",
+                    path.display()
+                ))
+            })?;
         }
 
         // Build the entry: emit a time heading only when the HH:MM changes
@@ -73,13 +94,6 @@ impl MarkdownWriter {
         } else {
             let _ = writeln!(entry, "{text}\n");
         }
-
-        // Append to the file
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|e| HooverError::Output(format!("failed to open {}: {e}", path.display())))?;
 
         file.write_all(entry.as_bytes()).map_err(|e| {
             HooverError::Output(format!("failed to write to {}: {e}", path.display()))
@@ -103,22 +117,12 @@ impl MarkdownWriter {
             .join(format!("{}.md", date.format("%Y-%m-%d")))
     }
 
-    #[allow(clippy::unused_self)]
-    fn write_day_header(&self, path: &Path, date: NaiveDate) -> Result<()> {
-        if path.exists() {
-            // File already exists (e.g., resuming), don't rewrite header
-            return Ok(());
-        }
-
+    fn day_header(date: NaiveDate) -> String {
         let weekday = date.weekday();
         let month = date.format("%B");
         let day = date.day();
         let year = date.year();
-        let header = format!("# {weekday}, {month} {day}, {year}\n\n");
-
-        fs::write(path, header.as_bytes()).map_err(|e| {
-            HooverError::Output(format!("failed to write header to {}: {e}", path.display()))
-        })
+        format!("# {weekday}, {month} {day}, {year}\n\n")
     }
 
     /// Remove overlapping prefix words from the new text.
@@ -163,7 +167,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
-    fn test_config(dir: &Path) -> OutputConfig {
+    fn test_config(dir: &std::path::Path) -> OutputConfig {
         OutputConfig {
             directory: dir.to_string_lossy().to_string(),
             timestamps: true,
@@ -303,6 +307,87 @@ mod tests {
 
         let result = writer.deduplicate_overlap("completely different text");
         assert_eq!(result, "completely different text");
+    }
+
+    #[test]
+    fn recovers_header_after_file_deleted() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let mut writer =
+            MarkdownWriter::new(&test_config(dir.path())).unwrap_or_else(|e| panic!("{e}"));
+
+        let segment = TranscriptionSegment {
+            text: "before delete".to_string(),
+            timestamp: Utc::now(),
+            duration_secs: 1.0,
+            confidence: None,
+        };
+
+        writer
+            .write_segment(&segment, None)
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        let date = Local::now().date_naive();
+        let file = dir.path().join(format!("{}.md", date.format("%Y-%m-%d")));
+        assert!(file.exists());
+
+        // Delete the file mid-session
+        fs::remove_file(&file).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!file.exists());
+
+        // Write another segment — should recreate with header
+        let segment2 = TranscriptionSegment {
+            text: "after delete".to_string(),
+            timestamp: Utc::now(),
+            duration_secs: 1.0,
+            confidence: None,
+        };
+
+        writer
+            .write_segment(&segment2, None)
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{e}"));
+        assert!(content.starts_with("# "), "file should start with day header");
+        assert!(content.contains("after delete"));
+    }
+
+    #[test]
+    fn recovers_header_after_file_truncated() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let mut writer =
+            MarkdownWriter::new(&test_config(dir.path())).unwrap_or_else(|e| panic!("{e}"));
+
+        let segment = TranscriptionSegment {
+            text: "initial content".to_string(),
+            timestamp: Utc::now(),
+            duration_secs: 1.0,
+            confidence: None,
+        };
+
+        writer
+            .write_segment(&segment, None)
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        let date = Local::now().date_naive();
+        let file = dir.path().join(format!("{}.md", date.format("%Y-%m-%d")));
+
+        // Truncate the file to zero bytes
+        fs::write(&file, b"").unwrap_or_else(|e| panic!("{e}"));
+
+        let segment2 = TranscriptionSegment {
+            text: "after truncate".to_string(),
+            timestamp: Utc::now(),
+            duration_secs: 1.0,
+            confidence: None,
+        };
+
+        writer
+            .write_segment(&segment2, None)
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{e}"));
+        assert!(content.starts_with("# "), "file should start with day header");
+        assert!(content.contains("after truncate"));
     }
 
     #[test]
