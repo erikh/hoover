@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,8 @@ pub struct MarkdownWriter {
     output_dir: PathBuf,
     timestamps: bool,
     current_date: Option<NaiveDate>,
+    /// The last emitted HH:MM timestamp, to avoid duplicate time headings.
+    last_time: Option<String>,
     /// Trailing words from the last written segment, for overlap deduplication.
     last_trailing_words: Vec<String>,
 }
@@ -26,6 +29,7 @@ impl MarkdownWriter {
             output_dir,
             timestamps: config.timestamps,
             current_date: None,
+            last_time: None,
             last_trailing_words: Vec::new(),
         })
     }
@@ -44,6 +48,7 @@ impl MarkdownWriter {
         let needs_header = self.current_date != Some(date);
         if needs_header {
             self.current_date = Some(date);
+            self.last_time = None;
             self.last_trailing_words.clear();
             self.write_day_header(&path, date)?;
         }
@@ -54,16 +59,20 @@ impl MarkdownWriter {
             return Ok(());
         }
 
-        // Format the entry
-        let entry = if self.timestamps {
-            let time_str = local_time.format("%H:%M:%S");
-            speaker.map_or_else(
-                || format!("**[{time_str}]** {text}\n\n"),
-                |name| format!("**[{time_str} — {name}]** {text}\n\n"),
-            )
+        // Build the entry: emit a time heading only when the HH:MM changes
+        let mut entry = String::new();
+        if self.timestamps {
+            let time_str = local_time.format("%H:%M").to_string();
+            if self.last_time.as_deref() != Some(&time_str) {
+                self.last_time = Some(time_str.clone());
+                let _ = writeln!(entry, "## {time_str}\n");
+            }
+        }
+        if let Some(name) = speaker {
+            let _ = writeln!(entry, "**{name}:** {text}\n");
         } else {
-            format!("{text}\n\n")
-        };
+            let _ = writeln!(entry, "{text}\n");
+        }
 
         // Append to the file
         let mut file = OpenOptions::new()
@@ -211,11 +220,65 @@ mod tests {
     }
 
     #[test]
+    fn writes_time_heading() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let mut writer =
+            MarkdownWriter::new(&test_config(dir.path())).unwrap_or_else(|e| panic!("{e}"));
+
+        let segment = TranscriptionSegment {
+            text: "first segment".to_string(),
+            timestamp: Utc::now(),
+            duration_secs: 1.0,
+            confidence: None,
+        };
+
+        writer
+            .write_segment(&segment, None)
+            .unwrap_or_else(|e| panic!("{e}"));
+
+        let date = Local::now().date_naive();
+        let file = dir.path().join(format!("{}.md", date.format("%Y-%m-%d")));
+        let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{e}"));
+        let time_str = Local::now().format("%H:%M").to_string();
+        assert!(content.contains(&format!("## {time_str}")));
+        assert!(content.contains("first segment"));
+    }
+
+    #[test]
+    fn same_minute_no_duplicate_heading() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let mut writer =
+            MarkdownWriter::new(&test_config(dir.path())).unwrap_or_else(|e| panic!("{e}"));
+
+        let now = Utc::now();
+        for text in &["first", "second"] {
+            let segment = TranscriptionSegment {
+                text: (*text).to_string(),
+                timestamp: now,
+                duration_secs: 1.0,
+                confidence: None,
+            };
+            writer
+                .write_segment(&segment, None)
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+
+        let date = Local::now().date_naive();
+        let file = dir.path().join(format!("{}.md", date.format("%Y-%m-%d")));
+        let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{e}"));
+        let time_str = now.with_timezone(&Local).format("%H:%M").to_string();
+        assert_eq!(content.matches(&format!("## {time_str}")).count(), 1);
+        assert!(content.contains("first"));
+        assert!(content.contains("second"));
+    }
+
+    #[test]
     fn deduplicates_overlap() {
         let writer = MarkdownWriter {
             output_dir: PathBuf::from("/tmp"),
             timestamps: true,
             current_date: None,
+            last_time: None,
             last_trailing_words: vec![
                 "the".to_string(),
                 "quick".to_string(),
@@ -234,6 +297,7 @@ mod tests {
             output_dir: PathBuf::from("/tmp"),
             timestamps: true,
             current_date: None,
+            last_time: None,
             last_trailing_words: vec!["hello".to_string(), "world".to_string()],
         };
 
@@ -247,6 +311,7 @@ mod tests {
             output_dir: PathBuf::from("/tmp"),
             timestamps: true,
             current_date: None,
+            last_time: None,
             last_trailing_words: Vec::new(),
         };
 
