@@ -293,8 +293,10 @@ hoover enroll "Alice"
 During enrollment, hoover records audio from your configured microphone, splits
 it into 3-second segments, extracts an embedding from each segment, and averages
 them to create a stable voice profile. At least 3 seconds of audio is required;
-longer recordings produce more robust profiles. The profile is saved as a `.bin`
-file in the profiles directory (default `~/.local/share/hoover/speakers/`).
+longer recordings produce more robust profiles. Reading a medium-sized email
+aloud works well -- it gives a natural mix of pacing, pitch, and pauses. The
+profile is saved as a `.bin` file in the profiles directory (default
+`~/.local/share/hoover/speakers/`).
 
 To re-enroll a speaker (e.g. to improve recognition), simply run `hoover enroll`
 again with the same name. The new profile overwrites the old one.
