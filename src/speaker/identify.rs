@@ -20,6 +20,12 @@ const EMA_UPDATE_THRESHOLD: f32 = 0.85;
 /// Save updated profiles to disk every N successful identifications.
 const SAVE_INTERVAL: u32 = 10;
 
+/// Speaker ID segment length in samples (3 seconds at 16 kHz).
+const SEGMENT_SAMPLES: usize = 16000 * 3;
+
+/// Minimum usable segment length (1 second at 16 kHz).
+const MIN_SEGMENT_SAMPLES: usize = 16000;
+
 /// Speaker identifier: holds loaded profiles and the embedding model session.
 pub struct SpeakerIdentifier {
     profiles: Vec<SpeakerProfile>,
@@ -58,6 +64,10 @@ impl SpeakerIdentifier {
 
     /// Identify the speaker from 16kHz mono audio samples.
     ///
+    /// The audio is split into short segments (3 seconds) because ECAPA-TDNN
+    /// embeddings are most reliable on short utterances.  The segment with the
+    /// highest match against any enrolled profile is used as the result.
+    ///
     /// When a speaker is identified with high confidence, their stored
     /// embedding is refined using an exponential moving average of the new
     /// embedding. Updated profiles are saved to disk periodically.
@@ -71,18 +81,47 @@ impl SpeakerIdentifier {
             }));
         }
 
-        let embedding = extract_embedding(&mut self.session, samples)?;
-
         let mut best_idx = 0;
         let mut best_score = f32::NEG_INFINITY;
+        let mut best_embedding: Option<Vec<f32>> = None;
 
-        for (i, profile) in self.profiles.iter().enumerate() {
-            let score = cosine_similarity(&embedding, &profile.embedding);
-            if score > best_score {
-                best_score = score;
-                best_idx = i;
+        // Split into 3-second segments (same window used during enrollment)
+        // and find the segment+profile pair with the highest score.
+        for chunk_start in (0..samples.len()).step_by(SEGMENT_SAMPLES) {
+            let chunk_end = (chunk_start + SEGMENT_SAMPLES).min(samples.len());
+            if chunk_end - chunk_start < MIN_SEGMENT_SAMPLES {
+                break;
+            }
+
+            let segment = &samples[chunk_start..chunk_end];
+            let embedding = extract_embedding(&mut self.session, segment)?;
+
+            for (i, profile) in self.profiles.iter().enumerate() {
+                let score = cosine_similarity(&embedding, &profile.embedding);
+                if score > best_score {
+                    best_score = score;
+                    best_idx = i;
+                    best_embedding = Some(embedding.clone());
+                }
             }
         }
+
+        // Fallback: if the audio was too short to segment, use it directly.
+        if best_embedding.is_none() {
+            let embedding = extract_embedding(&mut self.session, samples)?;
+            for (i, profile) in self.profiles.iter().enumerate() {
+                let score = cosine_similarity(&embedding, &profile.embedding);
+                if score > best_score {
+                    best_score = score;
+                    best_idx = i;
+                    best_embedding = Some(embedding.clone());
+                }
+            }
+        }
+
+        let Some(embedding) = best_embedding else {
+            return Ok(Some(SpeakerMatch { name: None, confidence: 0.0 }));
+        };
 
         if best_score >= self.min_confidence {
             let name = self.profiles[best_idx].name.clone();
