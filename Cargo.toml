@@ -35,6 +35,7 @@ reqwest = { version = "0.13", features = ["json", "multipart"], optional = true 
 
 # Speaker ID (always included)
 ort = "2.0.0-rc.11"
+mel_spec = "0.3"
 
 # Config
 serde = { version = "1.0", features = ["derive"] }

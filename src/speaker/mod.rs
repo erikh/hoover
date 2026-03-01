@@ -3,6 +3,7 @@ pub mod identify;
 
 use std::path::Path;
 
+use mel_spec::fbank::{Fbank, FbankConfig};
 use ort::session::Session;
 
 use crate::error::{HooverError, Result};
@@ -16,9 +17,17 @@ pub fn load_embedding_model(model_path: &Path) -> Result<Session> {
 
 /// Extract a speaker embedding from 16kHz mono audio samples.
 ///
-/// Dynamically adapts the input tensor shape to match the model's expected input rank
-/// (rank 2 for `[batch, samples]` or rank 3 for `[batch, 1, samples]`).
+/// Computes 80-dim log Mel filterbank (Fbank) features from the raw audio, then
+/// feeds them into the ONNX model. The input tensor shape is adapted to the
+/// model's expected rank: `[num_frames, 80]` for rank 2, or
+/// `[1, num_frames, 80]` for rank 3 (`WeSpeaker` convention).
 pub fn extract_embedding(session: &mut Session, samples: &[f32]) -> Result<Vec<f32>> {
+    let fbank = Fbank::new(FbankConfig::default());
+    let features = fbank.compute(samples);
+    let num_frames = features.nrows();
+    let num_bins = features.ncols();
+    let flat: Vec<f32> = features.into_raw_vec_and_offset().0;
+
     let input_rank = match session.inputs().first() {
         Some(input) => match input.dtype() {
             ort::value::ValueType::Tensor { shape, .. } => shape.len(),
@@ -36,8 +45,8 @@ pub fn extract_embedding(session: &mut Session, samples: &[f32]) -> Result<Vec<f
     };
 
     let input_tensor = match input_rank {
-        2 => ort::value::Tensor::from_array(([1usize, samples.len()], samples.to_vec())),
-        3 => ort::value::Tensor::from_array(([1usize, 1, samples.len()], samples.to_vec())),
+        2 => ort::value::Tensor::from_array(([num_frames, num_bins], flat)),
+        3 => ort::value::Tensor::from_array(([1usize, num_frames, num_bins], flat)),
         n => {
             return Err(HooverError::Speaker(format!(
                 "unsupported input tensor rank {n}, expected 2 or 3"
