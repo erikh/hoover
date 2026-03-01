@@ -1,7 +1,8 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use tracing_subscriber::EnvFilter;
 
 use hoover::config::Config;
@@ -134,6 +135,15 @@ enum Command {
     /// history. Communicates over stdin/stdout.
     #[cfg(feature = "mcp")]
     Mcp,
+
+    /// Generate shell completions
+    ///
+    /// Prints a completion script for the given shell to stdout.
+    /// Source or install the output to enable tab completion.
+    Completions {
+        /// Shell to generate completions for (bash, zsh, fish, elvish, powershell)
+        shell: Shell,
+    },
 }
 
 fn load_config(cli: &Cli) -> Result<Config, HooverError> {
@@ -156,6 +166,8 @@ fn init_logging(verbose: bool) {
 }
 
 fn main() {
+    install_completions_if_missing();
+
     let cli = Cli::parse();
     init_logging(cli.verbose);
 
@@ -166,6 +178,47 @@ fn main() {
     }
 }
 
+/// Auto-install shell completions for `$SHELL` if the completion file does not
+/// already exist.  Runs silently — errors are ignored so that missing dirs or
+/// unsupported shells never block normal operation.
+fn install_completions_if_missing() {
+    let Ok(shell_env) = std::env::var("SHELL") else {
+        return;
+    };
+
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+
+    // Map $SHELL to a clap_complete Shell variant and a destination path.
+    let (shell, path) = if shell_env.ends_with("/bash") {
+        let dir = home.join(".local/share/bash-completion/completions");
+        (Shell::Bash, dir.join("hoover"))
+    } else if shell_env.ends_with("/zsh") {
+        (Shell::Zsh, home.join(".zfunc/_hoover"))
+    } else if shell_env.ends_with("/fish") {
+        (Shell::Fish, home.join(".config/fish/completions/hoover.fish"))
+    } else {
+        return;
+    };
+
+    if path.exists() {
+        return;
+    }
+
+    // Create parent directory if needed.
+    if let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+
+    let mut buf = Vec::new();
+    generate(shell, &mut Cli::command(), "hoover", &mut buf);
+
+    let _ = std::fs::write(&path, buf);
+}
+
 fn run(cli: Cli) -> Result<(), HooverError> {
     match cli.command {
         Command::Devices {
@@ -173,6 +226,10 @@ fn run(cli: Cli) -> Result<(), HooverError> {
             pick,
         } => run_devices(&cli, set.as_deref(), pick),
         Command::Init => run_init(&cli),
+        Command::Completions { shell } => {
+            generate(shell, &mut Cli::command(), "hoover", &mut std::io::stdout());
+            Ok(())
+        }
         _ => run_with_config(cli),
     }
 }
@@ -283,7 +340,7 @@ fn run_with_config(cli: Cli) -> Result<(), HooverError> {
             rt.block_on(hoover::mcp::run_mcp_server(config))
         }
         Command::Speakers { remove } => run_speakers(&config, remove.as_deref()),
-        Command::Devices { .. } | Command::Init => unreachable!(),
+        Command::Devices { .. } | Command::Init | Command::Completions { .. } => unreachable!(),
     }
 }
 
