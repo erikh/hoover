@@ -3,9 +3,13 @@ name = "hoover"
 version = "0.0.1"
 edition = "2024"
 authors = ["Erik Hollensbe <git@hollensbe.org>"]
-description = "spy on yourself for good"
+description = "Continuous audio transcription and dictation tool with speaker identification, GPU acceleration, and AI assistant integration"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/erikh/hoover"
+homepage = "https://github.com/erikh/hoover"
+readme = "README.md"
+keywords = ["transcription", "dictation", "speech-to-text", "productivity", "audio"]
+categories = ["multimedia::audio", "command-line-utilities", "accessibility", "text-processing"]
 
 [features]
 default = ["cuda"]
@@ -81,6 +85,34 @@ libc = "0.2"
 [dev-dependencies]
 tempfile = "3.26"
 tokio-test = "0.4"
+
+[package.metadata.deb]
+maintainer = "Erik Hollensbe <git@hollensbe.org>"
+section = "sound"
+priority = "optional"
+extended-description = """Hoover is a continuous audio transcription tool that captures microphone \
+input, transcribes it using speech-to-text (Whisper, Vosk, or OpenAI), and \
+stores timestamped daily markdown logs. Features speaker identification, \
+GPU acceleration (CUDA/ROCm), encrypted UDP streaming, and an MCP server \
+for AI assistant integration."""
+depends = "$auto, alsa-utils"
+assets = [
+    ["target/release/hoover", "usr/bin/", "755"],
+    ["config.example.yaml", "usr/share/doc/hoover/", "644"],
+    ["README.md", "usr/share/doc/hoover/", "644"],
+    ["LICENSE", "usr/share/doc/hoover/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/hoover", dest = "/usr/bin/hoover", mode = "755" },
+    { source = "config.example.yaml", dest = "/usr/share/doc/hoover/config.example.yaml", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/hoover/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/hoover/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+alsa-lib = "*"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
