@@ -100,6 +100,11 @@ pub async fn run_recording(config: Config) -> Result<()> {
             }
         }
 
+        // Flush any pending speaker profile updates before exiting
+        if let Some(ref id) = speaker_id {
+            id.flush();
+        }
+
         tracing::debug!("STT thread exiting");
     });
 
