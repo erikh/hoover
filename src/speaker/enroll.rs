@@ -88,6 +88,40 @@ fn bincode_deserialize(data: &[u8]) -> Result<SpeakerProfile> {
     Ok(SpeakerProfile { name, embedding })
 }
 
+/// List all enrolled speaker profile names from the profiles directory.
+pub fn list_profiles(profiles_dir: &std::path::Path) -> Result<Vec<String>> {
+    if !profiles_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut names = Vec::new();
+    for entry in fs::read_dir(profiles_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("bin") {
+            match SpeakerProfile::load(&path) {
+                Ok(profile) => names.push(profile.name),
+                Err(e) => tracing::warn!("failed to load profile {}: {e}", path.display()),
+            }
+        }
+    }
+
+    names.sort();
+    Ok(names)
+}
+
+/// Remove an enrolled speaker profile by name.
+pub fn remove_profile(profiles_dir: &std::path::Path, name: &str) -> Result<()> {
+    let path = profiles_dir.join(format!("{name}.bin"));
+    if !path.exists() {
+        return Err(HooverError::Speaker(format!(
+            "no profile found for '{name}'"
+        )));
+    }
+    fs::remove_file(&path)?;
+    Ok(())
+}
+
 /// Run speaker enrollment: record audio, extract embeddings, save profile.
 pub async fn run_enrollment(config: &Config, name: &str) -> Result<()> {
     let model_path = resolve_speaker_model(config.speaker.model_path.as_deref())?;

@@ -95,6 +95,16 @@ enum Command {
         key_file: Option<PathBuf>,
     },
 
+    /// List or manage enrolled speaker profiles
+    ///
+    /// Shows all enrolled speaker profiles. Use --remove to delete a
+    /// speaker's profile by name.
+    Speakers {
+        /// Remove an enrolled speaker profile by name
+        #[arg(long)]
+        remove: Option<String>,
+    },
+
     /// List available audio input devices
     ///
     /// Shows all audio input devices recognized by the system. Use --pick
@@ -272,8 +282,30 @@ fn run_with_config(cli: Cli) -> Result<(), HooverError> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(hoover::mcp::run_mcp_server(config))
         }
+        Command::Speakers { remove } => run_speakers(&config, remove.as_deref()),
         Command::Devices { .. } | Command::Init => unreachable!(),
     }
+}
+
+fn run_speakers(config: &Config, remove: Option<&str>) -> Result<(), HooverError> {
+    let profiles_dir = Config::expand_path(&config.speaker.profiles_dir);
+
+    if let Some(name) = remove {
+        hoover::speaker::enroll::remove_profile(&profiles_dir, name)?;
+        println!("Removed speaker profile: {name}");
+        return Ok(());
+    }
+
+    let names = hoover::speaker::enroll::list_profiles(&profiles_dir)?;
+    if names.is_empty() {
+        println!("No enrolled speakers. Use `hoover enroll <name>` to add one.");
+    } else {
+        println!("Enrolled speakers:");
+        for name in &names {
+            println!("  {name}");
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

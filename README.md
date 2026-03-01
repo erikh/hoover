@@ -69,6 +69,12 @@ hoover record
 # Enroll a speaker voice profile
 hoover enroll "Alice"
 
+# List enrolled speakers
+hoover speakers
+
+# Remove a speaker profile
+hoover speakers --remove "Alice"
+
 # Push transcription repo
 hoover push
 
