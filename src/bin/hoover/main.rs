@@ -195,7 +195,12 @@ fn install_completions_if_missing() {
         let dir = home.join(".local/share/bash-completion/completions");
         (Shell::Bash, dir.join("hoover"))
     } else if shell_env.ends_with("/zsh") {
-        (Shell::Zsh, home.join(".zfunc/_hoover"))
+        // Prefer /usr/local/share/zsh/site-functions (typically in fpath and
+        // user-writable on many distros), fall back to the system dir.
+        let local = PathBuf::from("/usr/local/share/zsh/site-functions");
+        let system = PathBuf::from("/usr/share/zsh/site-functions");
+        let dir = if local.is_dir() { local } else { system };
+        (Shell::Zsh, dir.join("_hoover"))
     } else if shell_env.ends_with("/fish") {
         (Shell::Fish, home.join(".config/fish/completions/hoover.fish"))
     } else {
