@@ -11,12 +11,26 @@ audio:
   # device: "My Microphone"
 
   # Length of each audio chunk sent to the STT engine, in seconds.
-  # Longer chunks give more context but increase latency.
+  # Only used when vad_enabled is false (fixed-interval chunking).
   chunk_duration_secs: 60
 
   # Overlap between consecutive chunks, in seconds.
-  # Helps avoid cutting words at chunk boundaries.
+  # Used for both fixed-interval and VAD force-split overlap.
   overlap_secs: 5
+
+  # Enable VAD-based chunking (splits at natural silence boundaries instead of
+  # fixed intervals).  Requires the Silero VAD ONNX model, which is auto-
+  # downloaded on first use.
+  vad_enabled: true
+
+  # Minimum chunk duration (seconds) before a silence split is allowed.
+  min_chunk_secs: 10
+
+  # Maximum chunk duration (seconds); force-split with overlap at this point.
+  max_chunk_secs: 90
+
+  # Required consecutive silence duration (milliseconds) to trigger a split.
+  silence_threshold_ms: 500
 
 # ── Speech-to-text ─────────────────────────────────────────────────────────────
 stt:
@@ -31,7 +45,7 @@ stt:
 
   # Whisper model size (tiny, base, small, medium, large).
   # Larger models are more accurate but slower and use more memory.
-  whisper_model_size: small
+  whisper_model_size: medium
 
   # Path to a local STT model file.
   # Required for Vosk; optional for Whisper (auto-downloads by default).
@@ -39,6 +53,10 @@ stt:
 
   # OpenAI API key (required when backend is "openai").
   # openai_api_key: sk-...
+
+  # Optional initial prompt to anchor the Whisper decoder toward domain-specific
+  # vocabulary and style.  For example, if you frequently discuss Rust programming:
+  # initial_prompt: "Discussing Rust, Cargo, LLVM, and systems programming."
 
   # OpenAI model name.
   openai_model: whisper-1

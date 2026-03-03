@@ -30,6 +30,7 @@ pub struct WhisperEngine {
     _ctx: WhisperContext,
     state: WhisperState,
     language: String,
+    initial_prompt: String,
 }
 
 impl WhisperEngine {
@@ -57,6 +58,7 @@ impl WhisperEngine {
             _ctx: ctx,
             state,
             language: config.language.clone(),
+            initial_prompt: config.initial_prompt.clone(),
         })
     }
 }
@@ -88,6 +90,11 @@ impl SttEngine for WhisperEngine {
         // Feed prior segment text as context for the next segment to improve
         // coherence across chunk boundaries.
         params.set_no_context(false);
+
+        // Anchor the decoder toward domain-specific vocabulary when configured.
+        if !self.initial_prompt.is_empty() {
+            params.set_initial_prompt(&self.initial_prompt);
+        }
 
         // Set no-speech threshold via the params API as well.
         params.set_no_speech_thold(NO_SPEECH_THRESHOLD);

@@ -504,9 +504,9 @@ fn run_init(cli: &Cli) -> Result<(), HooverError> {
             // Whisper — only write non-default model size
             let model = prompt_default(
                 "Whisper model size (tiny/base/small/medium/large)",
-                "small",
+                "medium",
             )?;
-            if model != "small" {
+            if model != "medium" {
                 let stt = yaml_section(&mut root, "stt")?;
                 stt.insert(
                     Value::String("whisper_model_size".to_string()),

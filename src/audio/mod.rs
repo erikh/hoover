@@ -1,15 +1,34 @@
 pub mod buffer;
 pub mod capture;
 pub mod resample;
+pub mod vad;
+
+use std::path::PathBuf;
 
 use tokio::sync::mpsc;
 
 use crate::config::AudioConfig;
-use crate::error::Result;
+use crate::error::{HooverError, Result};
 
-use self::buffer::{AudioChunk, ChunkAccumulator};
+use self::buffer::{AudioChunk, ChunkAccumulator, Chunker, VadChunkAccumulator};
 use self::capture::AudioCapture;
 use self::resample::Resampler;
+use self::vad::SileroVad;
+
+const VAD_MODEL_URL: &str =
+    "https://huggingface.co/onnx-community/silero-vad/resolve/main/onnx/model.onnx";
+
+/// Resolve the Silero VAD ONNX model, downloading it if necessary.
+fn resolve_vad_model() -> Result<PathBuf> {
+    let data_dir = dirs::data_dir()
+        .ok_or_else(|| HooverError::Audio("could not determine data directory".to_string()))?;
+
+    let model_path = data_dir.join("hoover/models/silero_vad.onnx");
+
+    crate::models::ensure_model(&model_path, VAD_MODEL_URL, "Silero VAD model")?;
+
+    Ok(model_path)
+}
 
 /// Runs the audio pipeline in a dedicated thread: capture → resample → chunk → send.
 ///
@@ -18,6 +37,24 @@ pub fn start_audio_pipeline(
     config: &AudioConfig,
     chunk_tx: mpsc::Sender<AudioChunk>,
 ) -> Result<AudioCapture> {
+    // Resolve VAD model before spawning the thread so errors propagate to caller.
+    let chunker = if config.vad_enabled {
+        let model_path = resolve_vad_model()?;
+        let vad = SileroVad::new(&model_path)?;
+        Chunker::Vad(VadChunkAccumulator::new(
+            vad,
+            config.min_chunk_secs,
+            config.max_chunk_secs,
+            config.overlap_secs,
+            config.silence_threshold_ms,
+        ))
+    } else {
+        Chunker::Fixed(ChunkAccumulator::new(
+            config.chunk_duration_secs,
+            config.overlap_secs,
+        ))
+    };
+
     let capture = AudioCapture::new(config)?;
     let sample_rate = capture.sample_rate();
     let channels = capture.channels();
@@ -25,6 +62,7 @@ pub fn start_audio_pipeline(
 
     let chunk_duration = config.chunk_duration_secs;
     let overlap = config.overlap_secs;
+    let vad_enabled = config.vad_enabled;
 
     std::thread::spawn(move || {
         let mut resampler = match Resampler::new(sample_rate, channels) {
@@ -35,11 +73,17 @@ pub fn start_audio_pipeline(
             }
         };
 
-        tracing::debug!(
-            "audio pipeline: source_rate={sample_rate}, channels={channels}, chunk={chunk_duration}s, overlap={overlap}s"
-        );
+        if vad_enabled {
+            tracing::debug!(
+                "audio pipeline: source_rate={sample_rate}, channels={channels}, VAD chunking"
+            );
+        } else {
+            tracing::debug!(
+                "audio pipeline: source_rate={sample_rate}, channels={channels}, chunk={chunk_duration}s, overlap={overlap}s"
+            );
+        }
 
-        let mut accumulator = ChunkAccumulator::new(chunk_duration, overlap);
+        let mut accumulator = chunker;
         let mut total_raw = 0usize;
         let mut total_resampled = 0usize;
 

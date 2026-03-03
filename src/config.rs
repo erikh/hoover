@@ -12,6 +12,18 @@ const fn default_overlap_secs() -> u64 {
     5
 }
 
+const fn default_min_chunk_secs() -> u64 {
+    10
+}
+
+const fn default_max_chunk_secs() -> u64 {
+    90
+}
+
+const fn default_silence_threshold_ms() -> u64 {
+    500
+}
+
 fn default_stt_backend() -> String {
     "whisper".to_string()
 }
@@ -21,7 +33,7 @@ fn default_language() -> String {
 }
 
 fn default_whisper_model_size() -> String {
-    "small".to_string()
+    "medium".to_string()
 }
 
 fn default_openai_model() -> String {
@@ -110,6 +122,22 @@ pub struct AudioConfig {
 
     #[serde(default = "default_overlap_secs")]
     pub overlap_secs: u64,
+
+    /// Enable VAD-based chunking (splits at silence boundaries instead of fixed intervals).
+    #[serde(default = "default_true")]
+    pub vad_enabled: bool,
+
+    /// Minimum chunk duration in seconds before a silence split is allowed.
+    #[serde(default = "default_min_chunk_secs")]
+    pub min_chunk_secs: u64,
+
+    /// Maximum chunk duration in seconds; force-split with overlap at this point.
+    #[serde(default = "default_max_chunk_secs")]
+    pub max_chunk_secs: u64,
+
+    /// Required consecutive silence duration (in milliseconds) to trigger a split.
+    #[serde(default = "default_silence_threshold_ms")]
+    pub silence_threshold_ms: u64,
 }
 
 impl Default for AudioConfig {
@@ -118,6 +146,10 @@ impl Default for AudioConfig {
             device: None,
             chunk_duration_secs: default_chunk_duration_secs(),
             overlap_secs: default_overlap_secs(),
+            vad_enabled: true,
+            min_chunk_secs: default_min_chunk_secs(),
+            max_chunk_secs: default_max_chunk_secs(),
+            silence_threshold_ms: default_silence_threshold_ms(),
         }
     }
 }
@@ -143,6 +175,11 @@ pub struct SttConfig {
     /// Use GPU acceleration when available (requires the `cuda` or `rocm` feature).
     #[serde(default = "default_true")]
     pub gpu: bool,
+
+    /// Optional initial prompt to anchor the Whisper decoder toward domain-specific
+    /// vocabulary and style.  Leave empty to use the default Whisper behaviour.
+    #[serde(default)]
+    pub initial_prompt: String,
 }
 
 impl Default for SttConfig {
@@ -155,6 +192,7 @@ impl Default for SttConfig {
             openai_api_key: None,
             openai_model: default_openai_model(),
             gpu: true,
+            initial_prompt: String::new(),
         }
     }
 }
@@ -429,7 +467,14 @@ mod tests {
             serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("parse failed: {e}"));
         assert_eq!(config.audio.chunk_duration_secs, 60);
         assert_eq!(config.stt.backend, "whisper");
+        assert_eq!(config.stt.whisper_model_size, "medium");
+        assert!(config.stt.initial_prompt.is_empty());
         assert!(config.speaker.enabled);
+        // VAD defaults
+        assert!(config.audio.vad_enabled);
+        assert_eq!(config.audio.min_chunk_secs, 10);
+        assert_eq!(config.audio.max_chunk_secs, 90);
+        assert_eq!(config.audio.silence_threshold_ms, 500);
     }
 
     #[test]
@@ -525,6 +570,37 @@ vcs:
         assert!(gh.token.is_none());
         assert!(gh.owner.is_none());
         assert!(gh.repo.is_none());
+    }
+
+    #[test]
+    fn parse_initial_prompt() {
+        let yaml = r#"
+stt:
+  initial_prompt: "Discussing Rust and systems programming."
+"#;
+        let config: Config =
+            serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("parse failed: {e}"));
+        assert_eq!(
+            config.stt.initial_prompt,
+            "Discussing Rust and systems programming."
+        );
+    }
+
+    #[test]
+    fn parse_vad_settings() {
+        let yaml = r#"
+audio:
+  vad_enabled: false
+  min_chunk_secs: 20
+  max_chunk_secs: 120
+  silence_threshold_ms: 800
+"#;
+        let config: Config =
+            serde_yaml_ng::from_str(yaml).unwrap_or_else(|e| panic!("parse failed: {e}"));
+        assert!(!config.audio.vad_enabled);
+        assert_eq!(config.audio.min_chunk_secs, 20);
+        assert_eq!(config.audio.max_chunk_secs, 120);
+        assert_eq!(config.audio.silence_threshold_ms, 800);
     }
 
     #[test]

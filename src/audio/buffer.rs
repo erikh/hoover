@@ -1,6 +1,11 @@
 use chrono::{DateTime, Utc};
 
+use super::vad::SileroVad;
+
 const SAMPLE_RATE: u32 = 16000;
+
+/// Number of samples per VAD frame (required by Silero VAD at 16kHz).
+const VAD_FRAME_SAMPLES: usize = 512;
 
 /// A chunk of 16kHz mono audio ready for STT processing.
 #[derive(Debug, Clone)]
@@ -85,6 +90,155 @@ impl ChunkAccumulator {
 
         let samples: Vec<f32> = self.buffer.drain(..).collect();
         Some(AudioChunk::from_samples(&samples, self.chunk_start))
+    }
+}
+
+/// Accumulates 16kHz mono samples and splits at silence boundaries detected by
+/// Silero VAD, falling back to a force-split with overlap when the maximum
+/// chunk duration is reached.
+pub struct VadChunkAccumulator {
+    vad: SileroVad,
+    buffer: Vec<f32>,
+    /// How many samples from the front of `buffer` have already been
+    /// processed through the VAD model.
+    vad_cursor: usize,
+    min_samples: usize,
+    max_samples: usize,
+    overlap_samples: usize,
+    /// Number of consecutive VAD frames classified as silence.
+    silence_frames: u64,
+    /// How many consecutive silence frames are needed to trigger a split.
+    silence_frames_threshold: u64,
+    chunk_start: DateTime<Utc>,
+}
+
+impl VadChunkAccumulator {
+    /// Create a new VAD-based chunk accumulator.
+    ///
+    /// * `vad` — initialised `SileroVad` model
+    /// * `min_chunk_secs` — don't emit a chunk before this many seconds
+    /// * `max_chunk_secs` — force-split (with overlap) at this many seconds
+    /// * `overlap_secs` — overlap when force-splitting at max
+    /// * `silence_threshold_ms` — required consecutive silence duration (ms)
+    #[must_use]
+    pub fn new(
+        vad: SileroVad,
+        min_chunk_secs: u64,
+        max_chunk_secs: u64,
+        overlap_secs: u64,
+        silence_threshold_ms: u64,
+    ) -> Self {
+        let min_samples = (min_chunk_secs as usize) * (SAMPLE_RATE as usize);
+        let max_samples = (max_chunk_secs as usize) * (SAMPLE_RATE as usize);
+        let overlap_samples = (overlap_secs as usize) * (SAMPLE_RATE as usize);
+
+        // Each VAD frame is VAD_FRAME_SAMPLES at 16kHz → 32ms per frame.
+        let ms_per_frame = (VAD_FRAME_SAMPLES as u64 * 1000) / u64::from(SAMPLE_RATE);
+        let silence_frames_threshold = silence_threshold_ms.saturating_div(ms_per_frame).max(1);
+
+        Self {
+            vad,
+            buffer: Vec::with_capacity(max_samples),
+            vad_cursor: 0,
+            min_samples,
+            max_samples,
+            overlap_samples,
+            silence_frames: 0,
+            silence_frames_threshold,
+            chunk_start: Utc::now(),
+        }
+    }
+
+    /// Feed samples and return any chunks ready for transcription.
+    pub fn feed(&mut self, samples: &[f32]) -> Vec<AudioChunk> {
+        if self.buffer.is_empty() {
+            self.chunk_start = Utc::now();
+            self.vad_cursor = 0;
+        }
+
+        self.buffer.extend_from_slice(samples);
+
+        let mut chunks = Vec::new();
+
+        // Process complete 512-sample VAD frames starting from where we left off.
+        while self.vad_cursor + VAD_FRAME_SAMPLES <= self.buffer.len() {
+            let frame = &self.buffer[self.vad_cursor..self.vad_cursor + VAD_FRAME_SAMPLES];
+
+            let speech_prob = self.vad.process_chunk(frame).unwrap_or(0.0);
+
+            if speech_prob < 0.5 {
+                self.silence_frames += 1;
+            } else {
+                self.silence_frames = 0;
+            }
+
+            self.vad_cursor += VAD_FRAME_SAMPLES;
+
+            // Silence-triggered split: enough silence AND we've accumulated
+            // at least min_samples.
+            if self.silence_frames >= self.silence_frames_threshold
+                && self.vad_cursor >= self.min_samples
+            {
+                let chunk_data = self.buffer[..self.vad_cursor].to_vec();
+                chunks.push(AudioChunk::from_samples(&chunk_data, self.chunk_start));
+
+                self.buffer.drain(..self.vad_cursor);
+                self.vad_cursor = 0;
+                self.silence_frames = 0;
+                self.chunk_start = Utc::now();
+                self.vad.reset();
+                continue;
+            }
+
+            // Force-split at max duration (with overlap).
+            if self.buffer.len() >= self.max_samples {
+                let chunk_data = self.buffer[..self.max_samples].to_vec();
+                chunks.push(AudioChunk::from_samples(&chunk_data, self.chunk_start));
+
+                let drain_count = self.max_samples.saturating_sub(self.overlap_samples);
+                self.buffer.drain(..drain_count);
+                self.vad_cursor = self.vad_cursor.saturating_sub(drain_count);
+                self.silence_frames = 0;
+                self.chunk_start = Utc::now();
+                self.vad.reset();
+            }
+        }
+
+        chunks
+    }
+
+    /// Flush remaining samples as a final chunk (for graceful shutdown).
+    pub fn flush(&mut self) -> Option<AudioChunk> {
+        if self.buffer.is_empty() {
+            return None;
+        }
+
+        let samples: Vec<f32> = self.buffer.drain(..).collect();
+        self.vad_cursor = 0;
+        self.silence_frames = 0;
+        Some(AudioChunk::from_samples(&samples, self.chunk_start))
+    }
+}
+
+/// Unified chunker that dispatches to either fixed-interval or VAD-based chunking.
+pub enum Chunker {
+    Fixed(ChunkAccumulator),
+    Vad(VadChunkAccumulator),
+}
+
+impl Chunker {
+    pub fn feed(&mut self, samples: &[f32]) -> Vec<AudioChunk> {
+        match self {
+            Self::Fixed(acc) => acc.feed(samples),
+            Self::Vad(acc) => acc.feed(samples),
+        }
+    }
+
+    pub fn flush(&mut self) -> Option<AudioChunk> {
+        match self {
+            Self::Fixed(acc) => acc.flush(),
+            Self::Vad(acc) => acc.flush(),
+        }
     }
 }
 
